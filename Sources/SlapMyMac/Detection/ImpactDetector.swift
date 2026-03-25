@@ -8,6 +8,12 @@ final class ImpactDetector {
     private var cooldownInterval: TimeInterval
     private var lastImpactTime: TimeInterval = 0
 
+    /// After a detection, suppress all events for this many samples.
+    /// At ~100Hz, 30 samples = 300ms of suppression.
+    /// This prevents the "aftershock" tail of a slap from re-triggering.
+    private var suppressionCounter: Int = 0
+    private let suppressionSamples: Int = 30
+
     // STA/LTA state (3 timescales)
     private var staWindows: [Int] = [5, 10, 20]       // short-term window sizes
     private var ltaWindows: [Int] = [50, 100, 200]     // long-term window sizes
@@ -49,6 +55,17 @@ final class ImpactDetector {
         let magnitude = (filtered.x * filtered.x + filtered.y * filtered.y + filtered.z * filtered.z).squareRoot()
         let squaredMag = magnitude * magnitude
 
+        // Post-impact suppression: skip detection entirely while aftershock fades
+        if suppressionCounter > 0 {
+            suppressionCounter -= 1
+            // Still feed buffers so they adapt, but never fire
+            _ = checkSTALTA(squaredMag)
+            _ = checkCUSUM(magnitude)
+            _ = checkKurtosis(magnitude)
+            _ = checkPeakMAD(magnitude)
+            return nil
+        }
+
         // Step 2: Run all 4 detectors
         var detectorsFired: Set<String> = []
 
@@ -81,10 +98,22 @@ final class ImpactDetector {
             return nil  // Below all thresholds
         }
 
-        // Step 4: Cooldown
+        // Step 4: Cooldown (timestamp-based)
         let now = sample.timestamp
         guard now - lastImpactTime >= cooldownInterval else { return nil }
         lastImpactTime = now
+
+        // Step 5: Engage post-impact suppression to prevent double-triggers
+        suppressionCounter = suppressionSamples
+
+        // Step 6: Reset CUSUM accumulators so the spike doesn't linger
+        cusumPos = 0
+        cusumNeg = 0
+
+        // Clear STA buffers so the energy spike doesn't carry over
+        for i in 0..<3 {
+            staBuffers[i].removeAll()
+        }
 
         return ImpactEvent(
             severity: severity,
@@ -97,6 +126,7 @@ final class ImpactDetector {
     func reset() {
         highPassFilter.reset()
         lastImpactTime = 0
+        suppressionCounter = 0
         staBuffers = [[], [], []]
         ltaBuffers = [[], [], []]
         cusumPos = 0

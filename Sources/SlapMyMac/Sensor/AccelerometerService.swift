@@ -3,8 +3,12 @@ import IOKit
 import IOKit.hid
 
 /// Accesses the Apple Silicon BMI286 IMU via IOKit HID.
-/// Runs a CFRunLoop on a dedicated background thread to receive sensor callbacks.
+/// Uses IOHIDManager for reliable device discovery and input report callbacks
+/// on a dedicated background thread for high-frequency data.
 final class AccelerometerService: @unchecked Sendable {
+    private static let noOptions = IOOptionBits(kIOHIDOptionsTypeNone)
+
+    private var manager: IOHIDManager?
     private var device: IOHIDDevice?
     private var reportBuffer: UnsafeMutablePointer<UInt8>?
     private var thread: Thread?
@@ -44,53 +48,58 @@ final class AccelerometerService: @unchecked Sendable {
         continuation = nil
         isRunning = false
 
+        if let dev = device {
+            IOHIDDeviceClose(dev, Self.noOptions)
+            device = nil
+        }
+        if let mgr = manager {
+            IOHIDManagerClose(mgr, Self.noOptions)
+            manager = nil
+        }
         if let buf = reportBuffer {
             buf.deallocate()
             reportBuffer = nil
         }
-        device = nil
         thread = nil
         runLoop = nil
     }
 
-    // MARK: - Private
+    // MARK: - Sensor Loop (runs on dedicated thread)
 
     private func runSensorLoop() {
-        // Step 1: Wake SPU drivers
-        guard wakeSPUDrivers() else {
-            errorMessage = "Failed to wake SPU drivers. Apple Silicon laptop required."
-            continuation?.finish()
-            return
+        // Step 1: Wake ALL SPU drivers first
+        let driversWoken = wakeSPUDrivers()
+        if !driversWoken {
+            // Non-fatal: some systems may work without explicit wake
+            print("[SlapMyMac] Warning: Could not wake SPU drivers")
         }
 
-        // Step 2: Find accelerometer device
-        guard let accelDevice = findAccelerometerDevice() else {
+        // Step 2: Find and open accelerometer using IOHIDManager (then fallback)
+        let accelDevice: IOHIDDevice
+        if let primary = findAndOpenAccelerometer() {
+            accelDevice = primary
+        } else if let fallback = findAccelerometerViaServiceMatching() {
+            accelDevice = fallback
+        } else {
             errorMessage = "No accelerometer found. Apple Silicon laptop required."
             continuation?.finish()
             return
         }
 
-        // Step 3: Open device
-        let openResult = IOHIDDeviceOpen(accelDevice, IOOptionBits(kIOHIDOptionsTypeNone))
-        guard openResult == kIOReturnSuccess else {
-            errorMessage = "Cannot open accelerometer (error \(openResult)). Try running with sudo."
-            continuation?.finish()
-            return
-        }
-
         self.device = accelDevice
+        let dev = accelDevice
 
-        // Step 4: Allocate report buffer and register callback
-        let bufSize = Constants.reportSize
+        // Step 3: Allocate report buffer — use larger buffer to handle variable report sizes
+        let bufSize = 64
         let buf = UnsafeMutablePointer<UInt8>.allocate(capacity: bufSize)
         buf.initialize(repeating: 0, count: bufSize)
         self.reportBuffer = buf
 
-        // We need to pass self to the C callback. Use Unmanaged to get a pointer.
+        // Step 4: Register input report callback
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
 
         IOHIDDeviceRegisterInputReportCallback(
-            accelDevice,
+            dev,
             buf,
             CFIndex(bufSize),
             { context, result, sender, type, reportID, report, reportLength in
@@ -101,27 +110,31 @@ final class AccelerometerService: @unchecked Sendable {
             selfPtr
         )
 
-        // Step 5: Schedule on this thread's run loop and run
-        IOHIDDeviceScheduleWithRunLoop(accelDevice, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+        // Step 5: Schedule on this thread's run loop
+        IOHIDDeviceScheduleWithRunLoop(dev, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
 
         self.runLoop = CFRunLoopGetCurrent()
         self.isRunning = true
 
+        print("[SlapMyMac] Accelerometer started, listening for impacts...")
+
+        // Run the loop — blocks until stop() calls CFRunLoopStop
         CFRunLoopRun()
 
-        // Cleanup when run loop stops
-        IOHIDDeviceUnscheduleFromRunLoop(accelDevice, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
-        IOHIDDeviceClose(accelDevice, IOOptionBits(kIOHIDOptionsTypeNone))
+        // Cleanup
+        IOHIDDeviceUnscheduleFromRunLoop(dev, CFRunLoopGetCurrent(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDDeviceClose(dev, Self.noOptions)
     }
 
     private func handleReport(report: UnsafeMutablePointer<UInt8>, length: Int) {
+        // IMU reports are 22 bytes; ignore shorter reports
         guard length >= Constants.reportSize else { return }
 
-        // Decimate: keep 1 in N samples
+        // Decimate: keep 1 in N samples (~800Hz → ~100Hz)
         sampleCounter += 1
         guard sampleCounter % decimationFactor == 0 else { return }
 
-        // Parse Int32 LE at offsets 6, 10, 14
+        // Parse Int32 LE at offsets 6, 10, 14 and convert to g-force
         let rawX = readInt32LE(from: report, at: Constants.xOffset)
         let rawY = readInt32LE(from: report, at: Constants.yOffset)
         let rawZ = readInt32LE(from: report, at: Constants.zOffset)
@@ -144,7 +157,147 @@ final class AccelerometerService: @unchecked Sendable {
         return Int32(littleEndian: value)
     }
 
-    // MARK: - IOKit Device Discovery
+    // MARK: - IOHIDManager-based Device Discovery (primary approach)
+
+    private func findAndOpenAccelerometer() -> IOHIDDevice? {
+        let mgr = IOHIDManagerCreate(kCFAllocatorDefault, Self.noOptions)
+        self.manager = mgr
+
+        // Match Apple SPU devices — vendor-specific accelerometer
+        let matching: [String: Any] = [
+            kIOHIDVendorIDKey as String: 0x05AC,        // Apple
+            kIOHIDProductIDKey as String: 0x8104,       // SPU HID device
+            "PrimaryUsagePage": Constants.spuUsagePage,  // 0xFF00
+            "PrimaryUsage": Constants.spuAccelerometerUsage,  // 3
+        ]
+
+        IOHIDManagerSetDeviceMatching(mgr, matching as CFDictionary)
+        IOHIDManagerOpen(mgr, Self.noOptions)
+
+        guard let devices = IOHIDManagerCopyDevices(mgr) as? Set<IOHIDDevice> else {
+            // Try broader matching — just Apple SPU, check usage manually
+            return findAccelerometerBroadMatch(mgr)
+        }
+
+        for dev in devices {
+            let result = IOHIDDeviceOpen(dev, Self.noOptions)
+            if result == kIOReturnSuccess {
+                print("[SlapMyMac] Found accelerometer via IOHIDManager (matched \(devices.count) device(s))")
+                return dev
+            }
+        }
+
+        // Fall back to broader matching
+        return findAccelerometerBroadMatch(mgr)
+    }
+
+    /// Broader match: find ALL AppleSPUHIDDevice entries, check usage manually
+    private func findAccelerometerBroadMatch(_ mgr: IOHIDManager) -> IOHIDDevice? {
+        // Try matching just by vendor
+        let broadMatching: [String: Any] = [
+            kIOHIDVendorIDKey as String: 0x05AC,
+            kIOHIDProductIDKey as String: 0x8104,
+        ]
+
+        IOHIDManagerSetDeviceMatching(mgr, broadMatching as CFDictionary)
+
+        guard let devices = IOHIDManagerCopyDevices(mgr) as? Set<IOHIDDevice> else {
+            print("[SlapMyMac] No Apple SPU HID devices found at all")
+            return nil
+        }
+
+        print("[SlapMyMac] Found \(devices.count) Apple SPU device(s), checking for accelerometer...")
+
+        for dev in devices {
+            // Check usage page and usage
+            let usagePage = IOHIDDeviceGetProperty(dev, "PrimaryUsagePage" as CFString)
+            let usage = IOHIDDeviceGetProperty(dev, "PrimaryUsage" as CFString)
+
+            var upVal: Int = 0
+            var uVal: Int = 0
+
+            if let up = usagePage as? Int { upVal = up }
+            if let u = usage as? Int { uVal = u }
+
+            print("[SlapMyMac]   Device: UsagePage=0x\(String(upVal, radix: 16)), Usage=\(uVal)")
+
+            if upVal == Constants.spuUsagePage && uVal == Constants.spuAccelerometerUsage {
+                let result = IOHIDDeviceOpen(dev, Self.noOptions)
+                if result == kIOReturnSuccess {
+                    print("[SlapMyMac] Found accelerometer via broad match!")
+                    return dev
+                } else {
+                    print("[SlapMyMac]   Failed to open: \(result)")
+                }
+            }
+        }
+
+        // Last resort: try any vendor-specific device (0xFF00)
+        for dev in devices {
+            let usagePage = IOHIDDeviceGetProperty(dev, "PrimaryUsagePage" as CFString) as? Int ?? 0
+            if usagePage == Constants.spuUsagePage {
+                let result = IOHIDDeviceOpen(dev, Self.noOptions)
+                if result == kIOReturnSuccess {
+                    print("[SlapMyMac] Using first vendor-specific SPU device as accelerometer")
+                    return dev
+                }
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - Fallback: Direct IOService matching
+
+    private func findAccelerometerViaServiceMatching() -> IOHIDDevice? {
+        guard let matching = IOServiceMatching("AppleSPUHIDDevice") else { return nil }
+
+        var iterator: io_iterator_t = 0
+        let kr = IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator)
+        guard kr == KERN_SUCCESS else { return nil }
+        defer { IOObjectRelease(iterator) }
+
+        var service = IOIteratorNext(iterator)
+        while service != 0 {
+            // Check properties manually
+            if let props = getServiceProperties(service) {
+                let usagePage = props["PrimaryUsagePage"] as? Int ?? 0
+                let usage = props["PrimaryUsage"] as? Int ?? 0
+
+                print("[SlapMyMac] IOService: UsagePage=0x\(String(usagePage, radix: 16)), Usage=\(usage)")
+
+                if usagePage == Constants.spuUsagePage && usage == Constants.spuAccelerometerUsage {
+                    let dev = IOHIDDeviceCreate(kCFAllocatorDefault, service)
+                    IOObjectRelease(service)
+
+                    if let device = dev {
+                        let openResult = IOHIDDeviceOpen(device, Self.noOptions)
+                        if openResult == kIOReturnSuccess {
+                            print("[SlapMyMac] Found accelerometer via IOService fallback!")
+                            return device
+                        }
+                    }
+                    continue
+                }
+            }
+
+            IOObjectRelease(service)
+            service = IOIteratorNext(iterator)
+        }
+
+        return nil
+    }
+
+    private func getServiceProperties(_ service: io_service_t) -> [String: Any]? {
+        var properties: Unmanaged<CFMutableDictionary>?
+        let kr = IORegistryEntryCreateCFProperties(service, &properties, kCFAllocatorDefault, 0)
+        guard kr == KERN_SUCCESS, let props = properties?.takeRetainedValue() as? [String: Any] else {
+            return nil
+        }
+        return props
+    }
+
+    // MARK: - Wake SPU Drivers
 
     private func wakeSPUDrivers() -> Bool {
         guard let matching = IOServiceMatching("AppleSPUHIDDriver") else { return false }
@@ -158,38 +311,20 @@ final class AccelerometerService: @unchecked Sendable {
         var service = IOIteratorNext(iterator)
         while service != 0 {
             // Set properties to wake the driver
-            let reportingState: CFNumber = 1 as CFNumber
-            let powerState: CFNumber = 1 as CFNumber
-            let reportInterval: CFNumber = 1000 as CFNumber
-
-            IORegistryEntrySetCFProperty(service, "SensorPropertyReportingState" as CFString, reportingState)
-            IORegistryEntrySetCFProperty(service, "SensorPropertyPowerState" as CFString, powerState)
-            IORegistryEntrySetCFProperty(service, "ReportInterval" as CFString, reportInterval)
+            IORegistryEntrySetCFProperty(service, "SensorPropertyReportingState" as CFString, 1 as CFNumber)
+            IORegistryEntrySetCFProperty(service, "SensorPropertyPowerState" as CFString, 1 as CFNumber)
+            IORegistryEntrySetCFProperty(service, "ReportInterval" as CFString, 1000 as CFNumber)
 
             foundAny = true
             IOObjectRelease(service)
             service = IOIteratorNext(iterator)
         }
 
-        return foundAny
-    }
-
-    private func findAccelerometerDevice() -> IOHIDDevice? {
-        guard let matching = IOServiceMatching("AppleSPUHIDDevice") as NSMutableDictionary? else {
-            return nil
+        if foundAny {
+            // Give drivers a moment to wake up
+            Thread.sleep(forTimeInterval: 0.1)
         }
-        matching["PrimaryUsagePage"] = Constants.spuUsagePage
-        matching["PrimaryUsage"] = Constants.spuAccelerometerUsage
 
-        var iterator: io_iterator_t = 0
-        let kr = IOServiceGetMatchingServices(kIOMainPortDefault, matching as CFDictionary, &iterator)
-        guard kr == KERN_SUCCESS else { return nil }
-        defer { IOObjectRelease(iterator) }
-
-        let service = IOIteratorNext(iterator)
-        guard service != 0 else { return nil }
-        defer { IOObjectRelease(service) }
-
-        return IOHIDDeviceCreate(kCFAllocatorDefault, service)
+        return foundAny
     }
 }

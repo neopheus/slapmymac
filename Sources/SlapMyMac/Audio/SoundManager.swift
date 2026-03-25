@@ -19,12 +19,17 @@ final class SoundManager {
     }
 
     /// Play a sound at the given URL with optional volume scaling based on impact amplitude.
+    /// Lets previous sounds finish naturally — the ImpactDetector's post-impact
+    /// suppression (30 samples) prevents double-triggers at the source.
     func play(url: URL, amplitude: Double? = nil) {
         // Clean up finished players
         players.removeAll { !$0.isPlaying }
 
-        // Limit concurrent playback
-        guard players.count < maxConcurrentPlayers else { return }
+        // Cap concurrent players to avoid pile-up
+        if players.count >= maxConcurrentPlayers {
+            players.first?.stop()
+            players.removeFirst()
+        }
 
         guard let player = createPlayer(for: url) else { return }
 

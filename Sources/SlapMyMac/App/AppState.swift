@@ -8,40 +8,55 @@ final class AppState: ObservableObject {
     @Published var lastImpact: ImpactEvent?
     @Published var currentPack: SoundPack?
     @Published var errorMessage: String?
+    @Published var lastSampleDebug: String = "—"
+    @Published var lastLidEvent: LidEvent?
 
     var settings = UserSettings()
+    let lidAngle = LidAngleSensor()
+    let history = SlapHistory()
 
     private let accelerometer = AccelerometerService()
     private let detector = ImpactDetector()
     private let slapTracker = SlapTracker()
     private let soundManager = SoundManager()
+    private let lidEventDetector = LidEventDetector()
+    private let lidSoundManager = LidSoundManager()
+    private let mcpServer = MCPServer()
     private var sensorTask: Task<Void, Never>?
+    private var lidPollTimer: Timer?
+    private var sampleCount: Int = 0
 
     init() {
         loadSoundPack()
-        // Auto-start listening after a brief delay for initialization
+        setupMCPServer()
+
+        // Auto-start after init
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(500))
             startListening()
+            lidAngle.start()
+            startLidEventPolling()
+            mcpServer.start()
         }
     }
+
+    // MARK: - Accelerometer Control
 
     func startListening() {
         guard !isListening else { return }
 
-        // Update detector with current settings
         detector.updateSensitivity(settings.sensitivity)
         detector.updateCooldown(settings.cooldownMs)
 
         let stream = accelerometer.start()
         isListening = true
+        errorMessage = nil
 
         sensorTask = Task { [weak self] in
             for await sample in stream {
                 guard let self = self else { break }
                 self.processSample(sample)
             }
-            // Stream ended — check for errors
             if let error = self?.accelerometer.errorMessage {
                 await MainActor.run {
                     self?.errorMessage = error
@@ -60,17 +75,53 @@ final class AppState: ObservableObject {
     }
 
     func toggleListening() {
-        if isListening {
-            stopListening()
-        } else {
-            startListening()
+        if isListening { stopListening() } else { startListening() }
+    }
+
+    // MARK: - Lid Audio + Event Polling
+
+    private func startLidEventPolling() {
+        guard lidAngle.isAvailable else { return }
+
+        // Start the lid audio engine
+        updateLidAudioMode()
+
+        // Poll at 30Hz for smooth audio modulation
+        lidPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.pollLid()
+            }
         }
     }
+
+    private func pollLid() {
+        let angle = lidAngle.angle
+        let velocity = lidAngle.velocity
+
+        // Feed continuous audio (creak/theremin)
+        if settings.lidSoundsEnabled {
+            lidSoundManager.feed(angle: angle, velocity: velocity)
+        }
+
+        // Detect discrete lid events (open/close/slam) for UI display
+        if let event = lidEventDetector.process(angle: angle, velocity: velocity) {
+            lastLidEvent = event
+        }
+    }
+
+    func updateLidAudioMode() {
+        if settings.lidSoundsEnabled {
+            lidSoundManager.setMode(settings.lidAudioMode)
+        } else {
+            lidSoundManager.stop()
+        }
+    }
+
+    // MARK: - Sound Pack Management
 
     func loadSoundPack() {
         let mode = settings.soundMode
         if mode == .custom, let url = settings.customSoundURL {
-            // Resolve security-scoped bookmark if available
             if let bookmarkData = UserDefaults.standard.data(forKey: "customSoundBookmark") {
                 var isStale = false
                 if let resolvedURL = try? URL(
@@ -93,7 +144,6 @@ final class AppState: ObservableObject {
         if let pack = currentPack {
             soundManager.preload(pack)
         }
-
         slapTracker.reset()
     }
 
@@ -103,19 +153,105 @@ final class AppState: ObservableObject {
         soundManager.play(url: pack.urls[index])
     }
 
-    // MARK: - Private
+    /// Trigger a sound for external MCP callers.
+    func triggerExternalSound(mode: String) {
+        if let soundMode = SoundMode(rawValue: mode) {
+            let pack = SoundPack.bundled(soundMode)
+            guard !pack.isEmpty else { return }
+            let url = pack.urls[Int.random(in: 0..<pack.count)]
+            soundManager.play(url: url)
+        } else {
+            playTestSound()
+        }
+    }
+
+    // MARK: - MCP Server Setup
+
+    private func setupMCPServer() {
+        mcpServer.getStatus = { [weak self] in
+            guard let self = self else { return [:] }
+            return [
+                "listening": self.isListening,
+                "slapCount": self.slapCount,
+                "lifetimeSlaps": self.settings.lifetimeSlaps,
+                "soundMode": self.settings.soundMode.rawValue,
+                "sensitivity": self.settings.sensitivity,
+                "lidAngle": self.lidAngle.isAvailable ? self.lidAngle.angle : -1,
+                "lastImpact": self.lastImpact.map { [
+                    "severity": $0.severity.rawValue,
+                    "amplitude": $0.amplitude,
+                    "detectorCount": $0.detectorCount
+                ] as [String: Any] } as Any
+            ]
+        }
+
+        mcpServer.getStats = { [weak self] in
+            guard let self = self else { return [:] }
+            let s = self.history.stats
+            return [
+                "totalSlaps": s.totalSlaps,
+                "sessionSlaps": s.sessionSlaps,
+                "avgAmplitude": s.avgAmplitude,
+                "maxAmplitude": s.maxAmplitude,
+                "majorCount": s.majorCount,
+                "mediumCount": s.mediumCount,
+                "slapsPerMinute": s.slapsPerMinute,
+                "sessionDurationSeconds": s.sessionDuration,
+                "favoriteMode": s.favoriteMode,
+            ]
+        }
+
+        mcpServer.getHistory = { [weak self] in
+            guard let self = self else { return [] }
+            return self.history.recentRecords(50).map { record in
+                [
+                    "id": record.id.uuidString,
+                    "timestamp": ISO8601DateFormatter().string(from: record.timestamp),
+                    "amplitude": record.amplitude,
+                    "severity": record.severity,
+                    "detectorCount": record.detectorCount,
+                    "soundMode": record.soundMode,
+                ] as [String: Any]
+            }
+        }
+
+        mcpServer.triggerSound = { [weak self] mode in
+            DispatchQueue.main.async {
+                self?.triggerExternalSound(mode: mode)
+            }
+        }
+
+        mcpServer.setMode = { [weak self] mode in
+            DispatchQueue.main.async {
+                if let soundMode = SoundMode(rawValue: mode) {
+                    self?.settings.soundMode = soundMode
+                    self?.loadSoundPack()
+                }
+            }
+        }
+    }
+
+    // MARK: - Sample Processing
 
     private func processSample(_ sample: AccelerometerSample) {
-        // Run detection (this is fast, OK on main actor for now)
-        guard let event = detector.process(sample) else { return }
+        sampleCount += 1
 
-        // Only react to meaningful impacts
+        if sampleCount % 50 == 0 {
+            lastSampleDebug = String(format: "x:%.2f y:%.2f z:%.2f (mag:%.3f)",
+                                     sample.x, sample.y, sample.z, sample.magnitude)
+        }
+
+        guard let event = detector.process(sample) else { return }
         guard event.severity == .major || event.severity == .medium else { return }
 
         lastImpact = event
         slapCount += 1
+        settings.lifetimeSlaps += 1
 
-        // Select and play sound
+        // Record in history
+        history.record(event, mode: settings.soundMode)
+
+        // Play sound
         guard let pack = currentPack,
               let index = slapTracker.selectSound(for: event, from: pack) else { return }
 

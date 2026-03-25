@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s --connect-timeout 1 -X POST http://localhost:7749/trigger -d '{\"mode\":\"pain\"}' > /dev/null 2>&1 || true"
+          }
+        ]
+      }
+    ]
+  }
+}
