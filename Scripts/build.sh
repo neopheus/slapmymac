@@ -84,6 +84,10 @@ if [[ "$SANDBOX" == true ]]; then
     echo "Signing with sandbox entitlements (identity: $SIGNING_ID)..."
     codesign --force --deep --sign "$SIGNING_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
     echo "Signed with App Sandbox entitlements."
+elif [[ "$SIGNING_ID" != "-" ]]; then
+    echo "Signing with: $SIGNING_ID..."
+    codesign --force --deep --sign "$SIGNING_ID" "$APP_BUNDLE"
+    echo "Signed with $SIGNING_ID."
 else
     echo "Ad-hoc signing..."
     codesign --force --deep --sign "-" "$APP_BUNDLE"
