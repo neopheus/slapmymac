@@ -771,6 +771,32 @@ def gen_mario():
         parts.extend(env_ad(combined, attack=0.005, decay=dur * 0.9))
     save("Mario", 9, parts, "game over")
 
+def gen_lid():
+    print("🔊 Lid Events")
+    # 00: Open — soft mechanical click + air release
+    click = env_exp(bandpass(noise(0.02), 2000, 6000), attack=0.0003, decay_rate=60.0)
+    air = env_exp(highpass(noise(0.15), 3000), decay_rate=10.0)
+    s = mix(scale(click, 0.7), scale(air, 0.2))
+    save("Lid", 0, s, "open")
+
+    # 01: Close — soft thud + latch click
+    thud = env_exp(sweep(200, 60, 0.1), decay_rate=12.0)
+    latch = env_exp(bandpass(noise(0.01), 3000, 8000), attack=0.0002, decay_rate=80.0)
+    latch_samples = silence(0.05) + latch  # Latch slightly after thud
+    max_len = max(len(thud), len(latch_samples))
+    thud = thud + [0.0] * (max_len - len(thud))
+    latch_samples = latch_samples + [0.0] * (max_len - len(latch_samples))
+    s = mix(scale(thud, 0.6), scale(latch_samples, 0.5))
+    save("Lid", 1, s, "close")
+
+    # 02: Slam — heavy impact + rattling
+    impact = env_exp(sweep(300, 40, 0.15), decay_rate=6.0)
+    crack = env_exp(highpass(noise(0.04), 1500), attack=0.0003, decay_rate=25.0)
+    rattle = env_exp(bandpass(noise(0.3), 500, 3000), decay_rate=4.0)
+    s = mix(scale(impact, 0.5), scale(crack, 0.6), scale(rattle, 0.25))
+    s = reverb_simple(s, delay=0.02, feedback=0.2)
+    save("Lid", 2, s, "slam")
+
 # ── Main ────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -787,4 +813,5 @@ if __name__ == "__main__":
     gen_metal()
     gen_slap()
     gen_mario()
+    gen_lid()
     print("\n✅ Done! All sound packs generated.")

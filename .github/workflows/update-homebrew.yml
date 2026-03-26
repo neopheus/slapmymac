@@ -1,0 +1,67 @@
+name: Update Homebrew Tap
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  update-tap:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get release info
+        id: release
+        env:
+          TAG_NAME: ${{ github.event.release.tag_name }}
+        run: echo "version=${TAG_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Download DMG and compute SHA256
+        id: sha
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          curl -sL "https://github.com/neopheus/slapmymac/releases/download/v${VERSION}/SlapMyMac.dmg" -o SlapMyMac.dmg
+          SHA=$(shasum -a 256 SlapMyMac.dmg | awk '{print $1}')
+          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        with:
+          repository: neopheus/homebrew-slapmymac
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: tap
+
+      - name: Update Cask formula
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+          SHA256: ${{ steps.sha.outputs.sha256 }}
+        run: |
+          cat > tap/Casks/slapmymac.rb << RUBY
+          cask "slapmymac" do
+            version "$VERSION"
+            sha256 "$SHA256"
+
+            url "https://github.com/neopheus/slapmymac/releases/download/v#{version}/SlapMyMac.dmg"
+            name "SlapMyMac"
+            desc "Detects physical slaps on Apple Silicon MacBooks and plays sound effects"
+            homepage "https://github.com/neopheus/slapmymac"
+
+            depends_on macos: ">= :sonoma"
+            depends_on arch: :arm64
+
+            app "SlapMyMac.app"
+
+            zap trash: [
+              "~/Library/Preferences/com.slapmymac.app.plist",
+            ]
+          end
+          RUBY
+
+      - name: Commit and push
+        working-directory: tap
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Casks/slapmymac.rb
+          git commit -m "Update SlapMyMac to $VERSION"
+          git push

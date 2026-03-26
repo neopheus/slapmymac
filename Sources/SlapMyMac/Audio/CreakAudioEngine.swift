@@ -20,6 +20,7 @@ final class CreakAudioEngine {
     private var currentGain: Float = 0
     private var currentRate: Float = 1.0
     private var lastFeedTime: TimeInterval = 0
+    private var isPlayerPaused = false  // Track whether player is paused to save CPU
 
     // Parameters (from LidAngleSensor)
     private let velocityFull: Double = 10.0     // Full volume threshold
@@ -94,6 +95,21 @@ final class CreakAudioEngine {
         }
         currentRate = ramp(currentRate, toward: targetRate, dt: dt, tauMs: rateRampMs)
 
+        // Pause the player when gain is zero to save CPU (audio graph stops processing)
+        if currentGain == 0 {
+            if !isPlayerPaused {
+                playerNode.pause()
+                isPlayerPaused = true
+            }
+            return  // Skip setting volume/rate on paused player
+        }
+
+        // Resume player if it was paused
+        if isPlayerPaused {
+            playerNode.play()
+            isPlayerPaused = false
+        }
+
         // Apply
         playerNode.volume = currentGain
         varispeed.rate = currentRate
@@ -138,8 +154,8 @@ final class CreakAudioEngine {
         engine.connect(playerNode, to: varispeed, format: format)
         engine.connect(varispeed, to: engine.mainMixerNode, format: format)
 
-        // Reduce hardware buffer for lower latency (~5.8ms at 44.1kHz)
-        engine.outputNode.auAudioUnit.maximumFramesToRender = 256
+        // Use reasonable buffer size (~23ms at 44.1kHz) — saves CPU vs 256-frame buffers
+        engine.outputNode.auAudioUnit.maximumFramesToRender = 1024
     }
 
     private func smoothstep(_ t: Double) -> Double {

@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Foundation
 
@@ -10,8 +11,16 @@ final class SoundManager {
     private var preloadedBuffers: [URL: AVAudioPCMBuffer] = [:]
     private var engineStarted = false
 
+    /// Master volume (0.0–1.0). Applied to the main mixer node.
+    var masterVolume: Float = 0.8 {
+        didSet { engine.mainMixerNode.outputVolume = masterVolume }
+    }
+
+    private var lastPreloadedPack: SoundPack?
+
     init() {
         setupEngine()
+        observeRouteChanges()
     }
 
     private func setupEngine() {
@@ -51,6 +60,7 @@ final class SoundManager {
         // Start engine before loading buffers
         do {
             try engine.start()
+            engine.mainMixerNode.outputVolume = masterVolume
             engineStarted = true
         } catch {
             print("[SlapMyMac] Audio engine start failed: \(error)")
@@ -63,6 +73,8 @@ final class SoundManager {
                 preloadedBuffers[url] = buffer
             }
         }
+
+        lastPreloadedPack = pack
     }
 
     /// Play a sound at the given URL with optional volume scaling based on impact amplitude.
@@ -136,6 +148,24 @@ final class SoundManager {
         }
 
         return error == nil ? targetBuffer : nil
+    }
+
+    /// Re-preload after audio route change (Bluetooth disconnect, headphones, etc.)
+    private func observeRouteChanges() {
+        NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self = self, let pack = self.lastPreloadedPack else { return }
+            print("[SlapMyMac] Audio route changed — restarting engine")
+            self.preload(pack)
+        }
+    }
+
+    /// Play the macOS system "Pop" or "Tink" sound for UI feedback.
+    func playSystemSound() {
+        NSSound(named: "Tink")?.play()
     }
 
     /// Maps impact amplitude to volume using a logarithmic curve.

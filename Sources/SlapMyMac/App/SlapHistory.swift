@@ -108,6 +108,33 @@ final class SlapHistory: ObservableObject {
         return csv
     }
 
+    /// Export history + leaderboard data as a comprehensive CSV.
+    func exportFullCSV(leaderboard: Leaderboard, lifetimeSlaps: Int) -> String {
+        var csv = exportCSV()
+
+        // Add leaderboard section
+        csv += "\n# Top Slaps\n"
+        csv += "rank,amplitude,severity,detectorCount,date\n"
+        for (i, entry) in leaderboard.topSlaps.enumerated() {
+            let formatter = ISO8601DateFormatter()
+            csv += "\(i+1),\(entry.amplitude),\(entry.severity),\(entry.detectorCount),\(formatter.string(from: entry.timestamp))\n"
+        }
+
+        // Add achievements section
+        csv += "\n# Achievements\n"
+        csv += "id,title,unlocked\n"
+        for achievement in Leaderboard.allAchievements {
+            let unlocked = leaderboard.unlockedAchievements.contains(achievement.id)
+            csv += "\(achievement.id),\(achievement.title),\(unlocked)\n"
+        }
+
+        csv += "\n# Summary\n"
+        csv += "lifetime_slaps,\(lifetimeSlaps)\n"
+        csv += "achievements_unlocked,\(leaderboard.unlockedAchievements.count)/\(Leaderboard.allAchievements.count)\n"
+
+        return csv
+    }
+
     // MARK: - Persistence
 
     private func save() {

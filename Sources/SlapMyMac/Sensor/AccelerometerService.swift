@@ -34,7 +34,7 @@ final class AccelerometerService: @unchecked Sendable {
             self.runSensorLoop()
         }
         thread?.name = "SlapMyMac.Accelerometer"
-        thread?.qualityOfService = .userInteractive
+        thread?.qualityOfService = .userInitiated
         thread?.start()
 
         return stream

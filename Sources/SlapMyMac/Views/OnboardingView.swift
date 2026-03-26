@@ -5,42 +5,42 @@ struct OnboardingView: View {
     @State private var currentStep = 0
     @Environment(\.dismiss) private var dismiss
 
-    private let steps: [(icon: String, title: String, body: String, color: Color)] = [
-        (
-            "hand.raised.fill",
-            "Welcome to SlapMyMac",
-            "Your MacBook can feel when you slap it. We use the built-in accelerometer to detect impacts and play sounds. Go ahead — give it a try.",
-            .orange
-        ),
-        (
-            "speaker.wave.3.fill",
-            "Pick Your Sounds",
-            "Choose from 3 voice packs: Pain mode (\"Ow!\"), Sexy mode (escalating 60 levels), or Halo mode (game death sounds). You can also load your own MP3 folder.",
-            .purple
-        ),
-        (
-            "slider.horizontal.3",
-            "Tune Your Sensitivity",
-            "Adjust how hard you need to slap. From \"earthquake detector\" (feels everything) to \"needs a running start\" (only big hits). Find your sweet spot in the menu bar.",
-            Color(red: 0.2, green: 0.83, blue: 0.6)
-        ),
-        (
-            "menubar.arrow.up.rectangle",
-            "Lives in Your Menu Bar",
-            "SlapMyMac runs quietly in your menu bar. Click the hand icon to see your slap count, change voice packs, and adjust settings. Enable \"Launch at login\" to always be ready.",
-            .blue
-        ),
-    ]
+    private var steps: [(icon: String, title: String, body: String, color: Color)] {
+        [
+            (
+                "hand.raised.fill",
+                L10n.tr("onboarding.welcome.title"),
+                L10n.tr("onboarding.welcome.body"),
+                .orange
+            ),
+            (
+                "speaker.wave.3.fill",
+                L10n.tr("onboarding.sounds.title"),
+                L10n.tr("onboarding.sounds.body"),
+                .purple
+            ),
+            (
+                "slider.horizontal.3",
+                L10n.tr("onboarding.sensitivity.title"),
+                L10n.tr("onboarding.sensitivity.body"),
+                Color(red: 0.2, green: 0.83, blue: 0.6)
+            ),
+            (
+                "menubar.arrow.up.rectangle",
+                L10n.tr("onboarding.menubar.title"),
+                L10n.tr("onboarding.menubar.body"),
+                .blue
+            ),
+        ]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            // Step content
             TabView(selection: $currentStep) {
                 ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                     VStack(spacing: 20) {
                         Spacer()
 
-                        // Icon
                         ZStack {
                             Circle()
                                 .fill(step.color.opacity(0.15))
@@ -50,12 +50,10 @@ struct OnboardingView: View {
                                 .foregroundStyle(step.color)
                         }
 
-                        // Title
                         Text(step.title)
                             .font(.system(size: 22, weight: .bold, design: .rounded))
                             .multilineTextAlignment(.center)
 
-                        // Body
                         Text(step.body)
                             .font(.system(size: 14, design: .rounded))
                             .foregroundStyle(.secondary)
@@ -70,9 +68,7 @@ struct OnboardingView: View {
             }
             .tabViewStyle(.automatic)
 
-            // Progress dots and button
             VStack(spacing: 16) {
-                // Dots
                 HStack(spacing: 8) {
                     ForEach(0..<steps.count, id: \.self) { index in
                         Circle()
@@ -83,7 +79,6 @@ struct OnboardingView: View {
                     }
                 }
 
-                // Button
                 Button {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                         if currentStep < steps.count - 1 {
@@ -94,7 +89,7 @@ struct OnboardingView: View {
                         }
                     }
                 } label: {
-                    Text(currentStep < steps.count - 1 ? "Next" : "Start Slapping")
+                    Text(currentStep < steps.count - 1 ? L10n.tr("onboarding.next") : L10n.tr("onboarding.start"))
                         .font(.system(size: 15, weight: .semibold, design: .rounded))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -105,9 +100,8 @@ struct OnboardingView: View {
                 .buttonStyle(.plain)
                 .padding(.horizontal, 40)
 
-                // Skip button
                 if currentStep < steps.count - 1 {
-                    Button("Skip") {
+                    Button(L10n.tr("onboarding.skip")) {
                         appState.settings.hasCompletedOnboarding = true
                         dismiss()
                     }

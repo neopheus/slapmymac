@@ -21,6 +21,11 @@ final class ThereminAudioEngine {
     nonisolated(unsafe) private var targetFrequency: Double = 220
     nonisolated(unsafe) private var targetVolume: Double = 0
 
+    // Idle tracking — pause engine when silent to save CPU
+    private var silentFrameCount: Int = 0
+    private let silentFrameThreshold: Int = 4410  // ~100ms at 44.1kHz — pause after silence
+    nonisolated(unsafe) private var isIdle: Bool = true
+
     // Parameters
     private let sampleRate: Double = 44100
     private let minFrequency: Double = 110.0   // A2
@@ -86,6 +91,12 @@ final class ThereminAudioEngine {
         let volAlpha = min(1, dt / 0.050)
         frequency = frequency + (targetFrequency - frequency) * freqAlpha
         volume = volume + (targetVolume - volume) * volAlpha
+
+        // Wake the render callback if volume is significant
+        if targetVolume > 0.001 && isIdle {
+            isIdle = false
+            silentFrameCount = 0
+        }
     }
 
     // MARK: - Private
@@ -98,7 +109,28 @@ final class ThereminAudioEngine {
             let buf = ablPointer[0]
             guard let data = buf.mData?.assumingMemoryBound(to: Float.self) else { return noErr }
 
-            for frame in 0..<Int(frameCount) {
+            let count = Int(frameCount)
+
+            // Fast path: output silence when idle (no trig computations)
+            if self.isIdle {
+                memset(data, 0, count * MemoryLayout<Float>.size)
+                return noErr
+            }
+
+            let vol = self.volume
+            if vol < 0.001 {
+                // Volume is effectively zero — output silence and track idle
+                memset(data, 0, count * MemoryLayout<Float>.size)
+                self.silentFrameCount += count
+                if self.silentFrameCount >= self.silentFrameThreshold {
+                    self.isIdle = true
+                }
+                return noErr
+            }
+
+            self.silentFrameCount = 0
+
+            for frame in 0..<count {
                 // Vibrato modulation
                 let vibrato = sin(self.vibratoPhase) * self.vibratoDepth
                 let freq = self.frequency * (1 + vibrato)
@@ -110,7 +142,7 @@ final class ThereminAudioEngine {
                 self.vibratoPhase += 2.0 * .pi * self.vibratoFreq / self.sampleRate
                 if self.vibratoPhase > 2.0 * .pi { self.vibratoPhase -= 2.0 * .pi }
 
-                data[frame] = Float(sin(self.phase) * self.volume * 0.25)
+                data[frame] = Float(sin(self.phase) * vol * 0.25)
             }
 
             return noErr
@@ -120,8 +152,8 @@ final class ThereminAudioEngine {
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: format)
 
-        // Reduce hardware buffer for lower latency (~5.8ms at 44.1kHz)
-        engine.outputNode.auAudioUnit.maximumFramesToRender = 256
+        // Use reasonable buffer size (~23ms at 44.1kHz) — saves CPU vs 256-frame buffers
+        engine.outputNode.auAudioUnit.maximumFramesToRender = 1024
     }
 
     private func smoothstep(_ t: Double) -> Double {

@@ -16,50 +16,17 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
     case metal
     case slap
     case mario
+    case lid   // Internal: lid event sounds (not shown in picker)
     case custom
 
     var id: String { rawValue }
 
     var displayName: String {
-        switch self {
-        case .pain: return "Pain"
-        case .sexy: return "Sexy"
-        case .halo: return "Halo"
-        case .whip: return "Whip"
-        case .cartoon: return "Cartoon"
-        case .kungfu: return "Kung Fu"
-        case .drum: return "Drum"
-        case .cat: return "Cat"
-        case .glass: return "Glass"
-        case .eightbit: return "8-Bit"
-        case .thunder: return "Thunder"
-        case .wwe: return "WWE"
-        case .metal: return "Metal"
-        case .slap: return "Slap"
-        case .mario: return "Mario"
-        case .custom: return "Custom"
-        }
+        L10n.tr("sound.\(rawValue)")
     }
 
     var description: String {
-        switch self {
-        case .pain: return "10 protest/pain reactions"
-        case .sexy: return "60-level escalating intensity"
-        case .halo: return "Halo game death sounds"
-        case .whip: return "Whip cracks & lashes"
-        case .cartoon: return "Bonk, boing, splat, bell"
-        case .kungfu: return "Martial arts hits & kiai"
-        case .drum: return "Snare, kick, rimshot, crash"
-        case .cat: return "Surprised & angry meows"
-        case .glass: return "Cracks to full shatter"
-        case .eightbit: return "Retro game hit sounds"
-        case .thunder: return "Thunder cracks & rumbles"
-        case .wwe: return "Body slams & crowd oohs"
-        case .metal: return "Clang, gong, anvil strikes"
-        case .slap: return "Claques, gifles & fessées"
-        case .mario: return "Jump, coin, stomp, power-up"
-        case .custom: return "Your own MP3 files"
-        }
+        L10n.tr("sound.\(rawValue).desc")
     }
 
     /// System icon name for the mode.
@@ -80,6 +47,7 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
         case .metal: return "hammer.fill"
         case .slap: return "hand.raised.fill"
         case .mario: return "star.fill"
+        case .lid: return "laptopcomputer"
         case .custom: return "folder.fill"
         }
     }
@@ -92,13 +60,26 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// Folder name inside Resources/Sounds/
+    /// Folder name inside Resources/Sounds/ (English, never localized).
     var folderName: String {
         switch self {
+        case .pain: return "Pain"
+        case .sexy: return "Sexy"
+        case .halo: return "Halo"
+        case .whip: return "Whip"
+        case .cartoon: return "Cartoon"
         case .kungfu: return "KungFu"
+        case .drum: return "Drum"
+        case .cat: return "Cat"
+        case .glass: return "Glass"
         case .eightbit: return "8Bit"
+        case .thunder: return "Thunder"
         case .wwe: return "WWE"
-        default: return displayName
+        case .metal: return "Metal"
+        case .slap: return "Slap"
+        case .mario: return "Mario"
+        case .lid: return "Lid"
+        case .custom: return "Custom"
         }
     }
 }

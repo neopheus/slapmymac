@@ -5,6 +5,12 @@ struct SlapMyMacApp: App {
     @StateObject private var appState = AppState()
     @State private var showOnboarding = false
 
+    init() {
+        // Force accent color at app level so Settings window
+        // has it immediately on first open (not just after refocus)
+        NSApplication.shared.appearance = NSApplication.shared.effectiveAppearance
+    }
+
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
@@ -32,6 +38,7 @@ struct SlapMyMacApp: App {
         Settings {
             PreferencesView()
                 .environmentObject(appState)
+                .tint(Theme.accent)
         }
     }
 

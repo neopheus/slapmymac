@@ -5,11 +5,14 @@ import QuartzCore
 
 /// Reads the MacBook lid angle sensor via IOKit HID feature reports.
 /// Ported from https://github.com/samhenrigold/LidAngleSensor
+///
+/// This class does NOT own a timer. The caller (AppState) drives polling
+/// by calling `pollOnce()` at the desired frequency, avoiding duplicate timers.
 @MainActor
 final class LidAngleSensor: ObservableObject {
     private static let noOptions = IOOptionBits(kIOHIDOptionsTypeNone)
 
-    // Published state
+    // Published state — only updated when values actually change
     @Published var angle: Double = 0
     @Published var velocity: Double = 0
     @Published var isAvailable: Bool = false
@@ -18,7 +21,6 @@ final class LidAngleSensor: ObservableObject {
     // Private state
     private var hidDevice: IOHIDDevice?
     private var hidReport = [UInt8](repeating: 0, count: 8)
-    private var timer: Timer?
     private var isDeviceOpen = false
 
     // Smoothing state
@@ -29,22 +31,15 @@ final class LidAngleSensor: ObservableObject {
     private var lastMovementTime: TimeInterval = 0
     private var consecutiveMovementFrames: Int = 0
 
-    // Configurable parameters (set before start)
-    var pollHz: Double = Constants.defaultLidPollHz
+    // Configurable parameters
     var angleSmoothingTau: Double = Constants.defaultAngleSmoothingTau
     var velocitySmoothingTau: Double = Constants.defaultVelocitySmoothingTau
-
-    // Fixed parameters
-    private let velocityDecay: Double = 0.5
-    private let movementTimeout: TimeInterval = 0.05
 
     init() {
         probe()
     }
 
     deinit {
-        timer?.invalidate()
-        timer = nil
         if isDeviceOpen, let device = hidDevice {
             IOHIDDeviceClose(device, IOOptionBits(kIOHIDOptionsTypeNone))
         }
@@ -69,8 +64,9 @@ final class LidAngleSensor: ObservableObject {
         self.isAvailable = false
     }
 
+    /// Open the HID device for reading. Call once before pollOnce().
     func start() {
-        guard isAvailable, timer == nil, let device = hidDevice else { return }
+        guard isAvailable, !isDeviceOpen, let device = hidDevice else { return }
 
         let openResult = IOHIDDeviceOpen(device, Self.noOptions)
         guard openResult == kIOReturnSuccess else {
@@ -87,17 +83,11 @@ final class LidAngleSensor: ObservableObject {
             angle = initialAngle
         }
 
-        let interval = 1.0 / max(1, pollHz)
-        timer = .scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            DispatchQueue.main.async { self?.poll() }
-        }
         isRunning = true
-        print("[LidAngle] Sensor started, polling at \(Int(pollHz)) Hz")
+        print("[LidAngle] Sensor opened, ready for polling")
     }
 
     func stop() {
-        timer?.invalidate()
-        timer = nil
         if isDeviceOpen, let device = hidDevice {
             IOHIDDeviceClose(device, Self.noOptions)
             isDeviceOpen = false
@@ -105,19 +95,15 @@ final class LidAngleSensor: ObservableObject {
         isRunning = false
     }
 
-    /// Restart the sensor with current settings (call after changing pollHz or smoothing params).
-    func restart() {
-        guard isAvailable else { return }
-        let wasRunning = isRunning
-        if wasRunning { stop() }
-        if wasRunning { start() }
-    }
+    // MARK: - Polling (driven by caller)
 
-    // MARK: - Polling
-
-    private func poll() {
-        guard let rawAngle = readRawAngle() else { return }
+    /// Read the sensor once and update smoothed angle/velocity.
+    /// Returns the current smoothed velocity (useful for adaptive polling).
+    @discardableResult
+    func pollOnce() -> Double {
+        guard isDeviceOpen, let rawAngle = readRawAngle() else { return 0 }
         updateSmoothedValues(rawAngle: rawAngle)
+        return smoothedVelocity
     }
 
     private func readRawAngle() -> Double? {
@@ -181,9 +167,13 @@ final class LidAngleSensor: ObservableObject {
         lastAngle = smoothedAngle
         lastTime = now
 
-        // Publish
-        angle = smoothedAngle
-        velocity = smoothedVelocity
+        // Only publish when values actually changed (avoids redundant SwiftUI redraws)
+        if abs(smoothedAngle - angle) > 0.1 {
+            angle = smoothedAngle
+        }
+        if abs(smoothedVelocity - velocity) > 0.5 {
+            velocity = smoothedVelocity
+        }
     }
 
     // MARK: - Device Discovery

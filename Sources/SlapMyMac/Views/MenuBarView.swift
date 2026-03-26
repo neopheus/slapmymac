@@ -5,7 +5,6 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
             HeaderSection()
                 .environmentObject(appState)
 
@@ -13,25 +12,30 @@ struct MenuBarView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 12) {
-                    // Slap counter hero
                     SlapCounterCard()
                         .environmentObject(appState)
 
-                    // Lid angle (if available)
                     if appState.lidAngle.isAvailable {
                         LidAngleCard()
                             .environmentObject(appState)
                     }
 
-                    // Voice pack picker
+                    // Impact sparkline
+                    if !appState.recentAmplitudes.isEmpty {
+                        SparklineCard()
+                            .environmentObject(appState)
+                    }
+
                     VoicePackCard()
                         .environmentObject(appState)
 
-                    // Sensitivity control
                     SensitivityCard()
                         .environmentObject(appState)
 
-                    // Debug info (when listening)
+                    // Mute timer
+                    MuteTimerCard()
+                        .environmentObject(appState)
+
                     if appState.isListening {
                         DebugCard()
                             .environmentObject(appState)
@@ -42,13 +46,11 @@ struct MenuBarView: View {
 
             Divider().overlay(Theme.border)
 
-            // Footer actions
             FooterSection()
                 .environmentObject(appState)
         }
         .frame(width: Theme.popoverWidth)
         .background(Theme.bg)
-        .preferredColorScheme(.dark)
     }
 }
 
@@ -59,7 +61,6 @@ private struct HeaderSection: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            // Status indicator
             ZStack {
                 Circle()
                     .fill(appState.isListening ? Theme.green.opacity(0.2) : Theme.red.opacity(0.2))
@@ -81,17 +82,16 @@ private struct HeaderSection: View {
             }
 
             VStack(alignment: .leading, spacing: 1) {
-                Text("SlapMyMac")
+                Text(L10n.tr("app.name"))
                     .font(.system(size: 14, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
-                Text(appState.isListening ? "Listening for slaps..." : "Paused")
+                Text(appState.isListening ? L10n.tr("menubar.listening") : L10n.tr("menubar.paused"))
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
             }
 
             Spacer()
 
-            // Pause/Resume button
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                     appState.toggleListening()
@@ -120,7 +120,6 @@ private struct SlapCounterCard: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            // Big slap counter
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text("\(appState.slapCount)")
                     .font(.system(size: 42, weight: .black, design: .rounded))
@@ -128,24 +127,22 @@ private struct SlapCounterCard: View {
                     .contentTransition(.numericText())
                     .scaleEffect(isAnimating ? 1.08 : 1.0)
 
-                Text("slaps")
+                Text(L10n.tr("menubar.slaps"))
                     .font(.system(size: 16, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
             }
 
-            // Lifetime counter
-            Text("Lifetime: \(appState.settings.lifetimeSlaps)")
+            Text(L10n.tr("menubar.lifetime", appState.settings.lifetimeSlaps))
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(Theme.textTertiary)
 
-            // Last impact info
             if let impact = appState.lastImpact {
                 HStack(spacing: 6) {
                     ImpactBadge(severity: impact.severity)
                     Text(String(format: "%.3fg", impact.amplitude))
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(Theme.textSecondary)
-                    Text("(\(impact.detectorCount) detectors)")
+                    Text(L10n.tr("menubar.detectors", impact.detectorCount))
                         .font(.system(size: 10, design: .rounded))
                         .foregroundStyle(Theme.textTertiary)
                 }
@@ -170,6 +167,10 @@ private struct SlapCounterCard: View {
 private struct ImpactBadge: View {
     let severity: ImpactSeverity
 
+    private var label: String {
+        L10n.tr("impact.\(severity.rawValue)")
+    }
+
     var color: Color {
         switch severity {
         case .major: return Theme.red
@@ -180,13 +181,48 @@ private struct ImpactBadge: View {
     }
 
     var body: some View {
-        Text(severity.rawValue.uppercased())
+        Text(label)
             .font(.system(size: 9, weight: .bold, design: .rounded))
             .foregroundStyle(color)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
             .background(color.opacity(0.15))
             .clipShape(Capsule())
+    }
+}
+
+// MARK: - Sparkline Card
+
+private struct SparklineCard: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L10n.tr("sparkline.title"))
+                .font(.system(size: 9, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.textTertiary)
+
+            HStack(alignment: .bottom, spacing: 2) {
+                let amps = appState.recentAmplitudes
+                let maxAmp = amps.max() ?? 1.0
+                ForEach(Array(amps.enumerated()), id: \.offset) { _, amp in
+                    let height = max(2, CGFloat(amp / maxAmp) * 28)
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(barColor(amp))
+                        .frame(width: max(4, (Theme.popoverWidth - 48) / CGFloat(max(amps.count, 1))), height: height)
+                }
+            }
+            .frame(height: 30)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(8)
+        .cardStyle()
+    }
+
+    private func barColor(_ amplitude: Double) -> Color {
+        if amplitude >= 0.3 { return Theme.red }
+        if amplitude >= 0.1 { return Theme.accent }
+        return Theme.green
     }
 }
 
@@ -205,7 +241,7 @@ private struct LidAngleCard: View {
                 .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Lid Angle")
+                Text(L10n.tr("lid.angle"))
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
                 Text("\(Int(appState.lidAngle.angle))°")
@@ -238,10 +274,10 @@ private struct LidAngleCard: View {
 
     private func lidEventLabel(_ event: LidEvent) -> String {
         switch event {
-        case .opened: return "OPENED"
-        case .closed: return "CLOSED"
-        case .slammed: return "SLAMMED"
-        case .creaking: return "CREAK"
+        case .opened: return L10n.tr("lid.opened")
+        case .closed: return L10n.tr("lid.closed")
+        case .slammed: return L10n.tr("lid.slammed")
+        case .creaking: return L10n.tr("lid.creak")
         }
     }
 
@@ -263,7 +299,6 @@ private struct VoicePackCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header (always visible)
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                     isExpanded.toggle()
@@ -278,7 +313,7 @@ private struct VoicePackCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
 
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Voice Pack")
+                        Text(L10n.tr("voicepack.title"))
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.textSecondary)
                         Text(appState.settings.soundMode.displayName)
@@ -289,7 +324,7 @@ private struct VoicePackCard: View {
                     Spacer()
 
                     if let pack = appState.currentPack {
-                        Text("\(pack.count) clips")
+                        Text(L10n.tr("voicepack.clips", pack.count))
                             .font(.system(size: 11, design: .rounded))
                             .foregroundStyle(Theme.textTertiary)
                     }
@@ -303,10 +338,9 @@ private struct VoicePackCard: View {
             }
             .buttonStyle(.plain)
 
-            // Expanded: mode list
             if isExpanded {
                 VStack(spacing: 2) {
-                    ForEach(SoundMode.allCases) { mode in
+                    ForEach(SoundMode.allCases.filter { $0 != .lid }) { mode in
                         VoicePackRow(mode: mode, isSelected: appState.settings.soundMode == mode)
                             .environmentObject(appState)
                     }
@@ -350,7 +384,6 @@ private struct VoicePackRow: View {
 
                 Spacer()
 
-                // Test sound button
                 Button {
                     appState.settings.soundMode = mode
                     appState.loadSoundPack()
@@ -380,7 +413,7 @@ private struct SensitivityCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text("Sensitivity")
+                Text(L10n.tr("sensitivity.title"))
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.textPrimary)
                 Spacer()
@@ -396,11 +429,11 @@ private struct SensitivityCard: View {
                 }
 
             HStack {
-                Text("Cooldown: \(String(format: "%.1fs", Double(appState.settings.cooldownMs) / 1000.0))")
+                Text(L10n.tr("sensitivity.cooldown", String(format: "%.1fs", Double(appState.settings.cooldownMs) / 1000.0)))
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
                 Spacer()
-                Toggle("Volume scaling", isOn: $appState.settings.volumeScaling)
+                Toggle(L10n.tr("sensitivity.volumeScaling"), isOn: $appState.settings.volumeScaling)
                     .font(.system(size: 11, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
                     .toggleStyle(.switch)
@@ -412,6 +445,58 @@ private struct SensitivityCard: View {
     }
 }
 
+// MARK: - Mute Timer Card
+
+private struct MuteTimerCard: View {
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if appState.isMuted {
+                HStack {
+                    Image(systemName: "speaker.slash.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.red)
+                    Text(L10n.tr("mute.remaining", appState.muteRemaining))
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(Theme.textSecondary)
+                    Spacer()
+                    Button(L10n.tr("mute.cancel")) {
+                        appState.cancelMuteTimer()
+                    }
+                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.red)
+                    .buttonStyle(.plain)
+                }
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: "timer")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.textTertiary)
+                    Text(L10n.tr("mute.title"))
+                        .font(.system(size: 10, weight: .medium, design: .rounded))
+                        .foregroundStyle(Theme.textTertiary)
+                    Spacer()
+                    ForEach([(5, "mute.5min"), (15, "mute.15min"), (30, "mute.30min"), (60, "mute.60min")], id: \.0) { mins, key in
+                        Button(L10n.tr(key)) {
+                            appState.startMuteTimer(minutes: mins)
+                        }
+                        .font(.system(size: 9, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 2)
+                        .background(Theme.accentSoft)
+                        .clipShape(Capsule())
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(8)
+        .cardStyle()
+    }
+}
+
 // MARK: - Debug Card
 
 private struct DebugCard: View {
@@ -419,7 +504,7 @@ private struct DebugCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("ACCELEROMETER")
+            Text(L10n.tr("debug.accelerometer"))
                 .font(.system(size: 9, weight: .bold, design: .rounded))
                 .foregroundStyle(Theme.textTertiary)
 
@@ -441,7 +526,6 @@ private struct FooterSection: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // Error banner
             if let error = appState.errorMessage {
                 Text(error)
                     .font(.system(size: 10, design: .rounded))

@@ -5,6 +5,10 @@ final class UserSettings: ObservableObject {
     @AppStorage("sensitivity") var sensitivity: Double = Constants.defaultSensitivity
     @AppStorage("cooldownMs") var cooldownMs: Int = Constants.defaultCooldownMs
     @AppStorage("volumeScaling") var volumeScaling: Bool = true
+    @AppStorage("masterVolume") var masterVolume: Double = 0.8
+    @AppStorage("respectFocus") var respectFocus: Bool = true
+    @AppStorage("lidEventSoundsEnabled") var lidEventSoundsEnabled: Bool = true
+    @AppStorage("notificationsEnabled") var notificationsEnabled: Bool = true
     @AppStorage("decimationFactor") var decimationFactor: Int = Constants.defaultDecimationFactor
     @AppStorage("suppressionSamples") var suppressionSamples: Int = Constants.defaultSuppressionSamples
     @AppStorage("kurtosisEvalInterval") var kurtosisEvalInterval: Int = Constants.defaultKurtosisEvalInterval
@@ -22,6 +26,7 @@ final class UserSettings: ObservableObject {
     @AppStorage("lidEventCooldown") var lidEventCooldown: Double = Constants.defaultLidEventCooldown
     @AppStorage("mcpServerEnabled") var mcpServerEnabled: Bool = true
     @AppStorage("showSlapCountInMenuBar") var showSlapCountInMenuBar: Bool = true
+    @AppStorage("startupSoundEnabled") var startupSoundEnabled: Bool = false
 
     var customSoundURL: URL? {
         guard !customSoundPath.isEmpty else { return nil }
@@ -46,12 +51,12 @@ final class UserSettings: ObservableObject {
     /// Human-readable sensitivity label
     var sensitivityLabel: String {
         switch sensitivity {
-        case ..<0.02: return "Earthquake detector"
-        case ..<0.05: return "Feather touch"
-        case ..<0.10: return "Light tap"
-        case ..<0.20: return "Normal slap"
-        case ..<0.35: return "Strong hit"
-        default:      return "Needs a running start"
+        case ..<0.02: return L10n.tr("general.sensitivity.earthquake")
+        case ..<0.05: return L10n.tr("general.sensitivity.feather")
+        case ..<0.10: return L10n.tr("general.sensitivity.light")
+        case ..<0.20: return L10n.tr("general.sensitivity.normal")
+        case ..<0.35: return L10n.tr("general.sensitivity.strong")
+        default:      return L10n.tr("general.sensitivity.running")
         }
     }
 }

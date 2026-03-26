@@ -27,6 +27,17 @@ final class MCPServer {
     var triggerSound: ((String) -> Void)?
     var setMode: ((String) -> Void)?
 
+    private var sseClients: [Int32] = []
+    private let sseLock = NSLock()
+
+    /// Whether any SSE clients are connected (thread-safe).
+    var hasClients: Bool {
+        sseLock.lock()
+        let result = !sseClients.isEmpty
+        sseLock.unlock()
+        return result
+    }
+
     func start() {
         guard !isRunning else { return }
 
@@ -92,6 +103,14 @@ final class MCPServer {
         acceptSource?.cancel()
         acceptSource = nil
         serverSocket = -1
+
+        // Close SSE clients
+        sseLock.lock()
+        for sock in sseClients {
+            Darwin.close(sock)
+        }
+        sseClients.removeAll()
+        sseLock.unlock()
     }
 
     // MARK: - Request Handling
@@ -132,6 +151,21 @@ final class MCPServer {
         // Write response as raw bytes
         let httpResponse = "HTTP/1.1 \(status)\r\nContent-Type: application/json\r\nContent-Length: \(responseBody.utf8.count)\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\n\r\n\(responseBody)"
 
+        // SSE: keep connection open for event streaming
+        if status == "SSE" {
+            let sseHeader = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\nAccess-Control-Allow-Origin: *\r\n\r\n"
+            let headerBytes = Array(sseHeader.utf8)
+            headerBytes.withUnsafeBufferPointer { ptr in
+                if let base = ptr.baseAddress {
+                    _ = Darwin.write(sock, base, ptr.count)
+                }
+            }
+            sseLock.lock()
+            sseClients.append(sock)
+            sseLock.unlock()
+            return  // Don't close the socket
+        }
+
         let responseBytes = Array(httpResponse.utf8)
         responseBytes.withUnsafeBufferPointer { ptr in
             if let base = ptr.baseAddress {
@@ -167,6 +201,10 @@ final class MCPServer {
             setMode?(mode)
             return ("200 OK", "{\"ok\":true,\"mode\":\"\(mode)\"}")
 
+        case ("GET", "/events"):
+            // SSE endpoint — keep connection alive
+            return ("SSE", "")
+
         case ("OPTIONS", _):
             return ("200 OK", "")
 
@@ -180,6 +218,7 @@ final class MCPServer {
                     "GET /history": "Recent slap records",
                     "POST /trigger": "Trigger a sound {\"mode\":\"pain\"}",
                     "POST /mode": "Change sound mode {\"mode\":\"sexy\"}",
+                    "GET /events": "Server-Sent Events stream (real-time)",
                 ]
             ]
             return ("200 OK", jsonString(help))
@@ -210,5 +249,30 @@ final class MCPServer {
             return "[]"
         }
         return str
+    }
+
+    /// Broadcast an event to all connected SSE clients.
+    func broadcast(event: String, data: String) {
+        let message = "event: \(event)\ndata: \(data)\n\n"
+        let bytes = Array(message.utf8)
+
+        sseLock.lock()
+        var disconnected: [Int] = []
+
+        for (index, sock) in sseClients.enumerated() {
+            let written = bytes.withUnsafeBufferPointer { ptr -> Int in
+                guard let base = ptr.baseAddress else { return -1 }
+                return Darwin.write(sock, base, ptr.count)
+            }
+            if written <= 0 {
+                Darwin.close(sock)
+                disconnected.append(index)
+            }
+        }
+
+        for index in disconnected.reversed() {
+            sseClients.remove(at: index)
+        }
+        sseLock.unlock()
     }
 }

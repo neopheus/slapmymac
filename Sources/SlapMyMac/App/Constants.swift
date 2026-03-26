@@ -9,14 +9,14 @@ enum Constants {
     static let xOffset: Int = 6
     static let yOffset: Int = 10
     static let zOffset: Int = 14
-    static let defaultDecimationFactor: Int = 4  // Keep 1 in N samples (4 → ~200Hz, 8 → ~100Hz)
+    static let defaultDecimationFactor: Int = 8  // Keep 1 in N samples (8 → ~100Hz, sufficient for slap detection)
 
     /// Detection defaults
     static let defaultSensitivity: Double = 0.05   // Minimum amplitude in g
     static let defaultCooldownMs: Int = 350
     static let highPassAlpha: Double = 0.95
     static let defaultSuppressionSamples: Int = 15  // Post-impact suppression (at ~200Hz: 15 = ~75ms)
-    static let defaultKurtosisEvalInterval: Int = 1  // Evaluate kurtosis every N samples (1 = every sample)
+    static let defaultKurtosisEvalInterval: Int = 5  // Evaluate kurtosis every N samples (5 = every 5th sample)
 
     /// STA/LTA thresholds
     static let staLtaOnThresholds: [Double] = [3.0, 2.5, 2.0]
@@ -36,7 +36,7 @@ enum Constants {
     static let madScaleFactor: Double = 1.4826
 
     /// Lid sensor defaults
-    static let defaultLidPollHz: Double = 60        // 60Hz for responsive lid tracking
+    static let defaultLidPollHz: Double = 30        // 30Hz — sufficient for smooth lid tracking, halves CPU
     static let defaultAngleSmoothingTau: Double = 0.05   // 50ms time constant — fast angle response
     static let defaultVelocitySmoothingTau: Double = 0.03 // 30ms — fast velocity response
     static let defaultLidEventCooldown: Double = 1.0     // 1s between lid events (was 2s)
