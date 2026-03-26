@@ -391,6 +391,9 @@ private struct SensitivityCard: View {
 
             Slider(value: $appState.settings.sensitivity, in: 0.005...0.50, step: 0.005)
                 .tint(Theme.accent)
+                .onChange(of: appState.settings.sensitivity) {
+                    appState.applySensitivitySettings()
+                }
 
             HStack {
                 Text("Cooldown: \(String(format: "%.1fs", Double(appState.settings.cooldownMs) / 1000.0))")

@@ -72,8 +72,8 @@ final class ThereminAudioEngine {
 
         // Volume: base + velocity boost (slow = louder)
         let speed = abs(velocity)
-        if speed < 1.0 {
-            targetVolume = 0  // Deadzone
+        if speed < 3.0 {
+            targetVolume = 0  // Deadzone — reject sensor noise below 3°/s
         } else {
             let t = min(1, speed / velocityQuiet)
             let s = smoothstep(t)
@@ -119,6 +119,9 @@ final class ThereminAudioEngine {
         self.sourceNode = node
         engine.attach(node)
         engine.connect(node, to: engine.mainMixerNode, format: format)
+
+        // Reduce hardware buffer for lower latency (~5.8ms at 44.1kHz)
+        engine.outputNode.auAudioUnit.maximumFramesToRender = 256
     }
 
     private func smoothstep(_ t: Double) -> Double {

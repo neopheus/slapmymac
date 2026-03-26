@@ -9,10 +9,10 @@ final class ImpactDetector {
     private var lastImpactTime: TimeInterval = 0
 
     /// After a detection, suppress all events for this many samples.
-    /// At ~100Hz, 30 samples = 300ms of suppression.
+    /// At ~200Hz, 15 samples ≈ 75ms of suppression.
     /// This prevents the "aftershock" tail of a slap from re-triggering.
     private var suppressionCounter: Int = 0
-    private let suppressionSamples: Int = 30
+    private var suppressionSamples: Int
 
     // STA/LTA state (3 timescales)
     private var staWindows: [Int] = [5, 10, 20]       // short-term window sizes
@@ -30,14 +30,19 @@ final class ImpactDetector {
     // Kurtosis state
     private var kurtosisBuffer: [Double] = []
     private var kurtosisSampleCount: Int = 0
+    private var kurtosisEvalInterval: Int
 
     // Peak/MAD state
     private var peakMadBuffer: [Double] = []
 
     init(sensitivity: Double = Constants.defaultSensitivity,
-         cooldownMs: Int = Constants.defaultCooldownMs) {
+         cooldownMs: Int = Constants.defaultCooldownMs,
+         suppressionSamples: Int = Constants.defaultSuppressionSamples,
+         kurtosisEvalInterval: Int = Constants.defaultKurtosisEvalInterval) {
         self.sensitivity = sensitivity
         self.cooldownInterval = TimeInterval(cooldownMs) / 1000.0
+        self.suppressionSamples = suppressionSamples
+        self.kurtosisEvalInterval = max(1, kurtosisEvalInterval)
     }
 
     func updateSensitivity(_ value: Double) {
@@ -46,6 +51,14 @@ final class ImpactDetector {
 
     func updateCooldown(_ ms: Int) {
         cooldownInterval = TimeInterval(ms) / 1000.0
+    }
+
+    func updateSuppressionSamples(_ value: Int) {
+        suppressionSamples = max(1, value)
+    }
+
+    func updateKurtosisEvalInterval(_ value: Int) {
+        kurtosisEvalInterval = max(1, value)
     }
 
     /// Process a single sample. Returns an ImpactEvent if an impact is detected.
@@ -204,9 +217,9 @@ final class ImpactDetector {
             kurtosisBuffer.removeFirst()
         }
 
-        // Only compute every 10 samples once buffer is full
+        // Compute every kurtosisEvalInterval samples once buffer is full
         guard kurtosisBuffer.count >= Constants.kurtosisWindowSize,
-              kurtosisSampleCount % 10 == 0 else {
+              kurtosisSampleCount % kurtosisEvalInterval == 0 else {
             return false
         }
 

@@ -15,7 +15,7 @@ final class AccelerometerService: @unchecked Sendable {
     private var runLoop: CFRunLoop?
     private var continuation: AsyncStream<AccelerometerSample>.Continuation?
     private var sampleCounter: Int = 0
-    private let decimationFactor = Constants.decimationFactor
+    var decimationFactor: Int = Constants.defaultDecimationFactor
 
     private(set) var isRunning = false
     private(set) var errorMessage: String?

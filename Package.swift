@@ -7,7 +7,7 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "SlapMyMac",
-            exclude: ["Resources/Info.plist"],
+            exclude: ["Resources/Info.plist", "Resources/SlapMyMac.entitlements"],
             resources: [
                 .copy("Resources/Sounds")
             ],
@@ -15,6 +15,7 @@ let package = Package(
                 .linkedFramework("IOKit"),
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("ServiceManagement"),
+                .linkedFramework("Carbon"),
             ]
         ),
         .testTarget(

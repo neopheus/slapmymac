@@ -27,14 +27,16 @@ final class LidAngleSensor: ObservableObject {
     private var lastTime: TimeInterval = 0
     private var smoothedVelocity: Double = 0
     private var lastMovementTime: TimeInterval = 0
+    private var consecutiveMovementFrames: Int = 0
 
-    // Smoothing parameters
-    private let angleSmoothingFactor: Double = 0.05
-    private let velocitySmoothingFactor: Double = 0.3
+    // Configurable parameters (set before start)
+    var pollHz: Double = Constants.defaultLidPollHz
+    var angleSmoothingTau: Double = Constants.defaultAngleSmoothingTau
+    var velocitySmoothingTau: Double = Constants.defaultVelocitySmoothingTau
+
+    // Fixed parameters
     private let velocityDecay: Double = 0.5
-    private let additionalDecay: Double = 0.8
     private let movementTimeout: TimeInterval = 0.05
-    private let pollRate: TimeInterval = 1.0 / 30.0
 
     init() {
         probe()
@@ -85,11 +87,12 @@ final class LidAngleSensor: ObservableObject {
             angle = initialAngle
         }
 
-        timer = .scheduledTimer(withTimeInterval: pollRate, repeats: true) { [weak self] _ in
+        let interval = 1.0 / max(1, pollHz)
+        timer = .scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             DispatchQueue.main.async { self?.poll() }
         }
         isRunning = true
-        print("[LidAngle] Sensor started, polling at \(Int(1.0 / pollRate)) Hz")
+        print("[LidAngle] Sensor started, polling at \(Int(pollHz)) Hz")
     }
 
     func stop() {
@@ -100,6 +103,14 @@ final class LidAngleSensor: ObservableObject {
             isDeviceOpen = false
         }
         isRunning = false
+    }
+
+    /// Restart the sensor with current settings (call after changing pollHz or smoothing params).
+    func restart() {
+        guard isAvailable else { return }
+        let wasRunning = isRunning
+        if wasRunning { stop() }
+        if wasRunning { start() }
     }
 
     // MARK: - Polling
@@ -134,26 +145,36 @@ final class LidAngleSensor: ObservableObject {
         let dt = now - lastTime
         guard dt > 0 else { return }
 
-        // Smooth angle with exponential filter
-        smoothedAngle = angleSmoothingFactor * rawAngle + (1.0 - angleSmoothingFactor) * smoothedAngle
+        // Time-constant-based EMA (dt-independent, consistent regardless of poll rate)
+        let angleAlpha = 1.0 - exp(-dt / max(0.001, angleSmoothingTau))
+        smoothedAngle = angleAlpha * rawAngle + (1.0 - angleAlpha) * smoothedAngle
 
-        // Calculate velocity
+        // Calculate velocity — with noise gate to reject sensor jitter
         let delta = smoothedAngle - lastAngle
-        let instantVelocity = abs(delta) < 0.5 ? 0 : abs(delta / dt)
+        // The sensor is 9-bit (integer degrees). A delta < 1.0° is noise.
+        let instantVelocity = abs(delta) < 1.0 ? 0.0 : abs(delta / dt)
+
+        let velAlpha = 1.0 - exp(-dt / max(0.001, velocitySmoothingTau))
 
         if instantVelocity > 0 {
-            smoothedVelocity = velocitySmoothingFactor * instantVelocity + (1.0 - velocitySmoothingFactor) * smoothedVelocity
-            lastMovementTime = now
+            // Require consecutive movement frames to avoid single-spike activation
+            consecutiveMovementFrames += 1
+            if consecutiveMovementFrames >= 2 {
+                smoothedVelocity = velAlpha * instantVelocity + (1.0 - velAlpha) * smoothedVelocity
+                lastMovementTime = now
+            }
         } else {
+            consecutiveMovementFrames = 0
             // Gradual decay — lets the creak audio fade out smoothly
-            smoothedVelocity *= 0.6
+            smoothedVelocity *= 0.5
         }
 
-        // After 150ms of no movement, decay faster and cut below threshold
-        if now - lastMovementTime > 0.15 {
-            smoothedVelocity *= 0.4
+        // After 200ms of no movement, decay faster and cut below threshold
+        if now - lastMovementTime > 0.20 {
+            smoothedVelocity *= 0.3
         }
-        if smoothedVelocity < 0.3 {
+        // Velocity must exceed 2°/s to be published — below is sensor noise
+        if smoothedVelocity < 2.0 {
             smoothedVelocity = 0
         }
 

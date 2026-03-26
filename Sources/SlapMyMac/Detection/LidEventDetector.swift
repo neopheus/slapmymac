@@ -19,7 +19,15 @@ final class LidEventDetector {
     private let closeAngleThreshold: Double = 15   // Degrees — below = "closed"
     private let slamVelocityThreshold: Double = 80 // Degrees/sec — above = slam
     private let creakVelocityRange: ClosedRange<Double> = 5...30
-    private let eventCooldown: TimeInterval = 2.0  // Seconds between events
+    private var eventCooldown: TimeInterval
+
+    init(eventCooldown: TimeInterval = Constants.defaultLidEventCooldown) {
+        self.eventCooldown = eventCooldown
+    }
+
+    func updateEventCooldown(_ value: TimeInterval) {
+        eventCooldown = max(0.1, value)
+    }
 
     /// Process angle + velocity, return a LidEvent if detected.
     func process(angle: Double, velocity: Double) -> LidEvent? {
@@ -61,8 +69,8 @@ final class LidEventDetector {
 
         // Creaking detection (lid moving slowly while open)
         if isOpen && creakVelocityRange.contains(velocity) {
-            // Don't fire too often
-            if now - lastEventTime >= 5.0 {
+            // Don't fire too often (2.5× the event cooldown)
+            if now - lastEventTime >= eventCooldown * 2.5 {
                 lastEventTime = now
                 return .creaking
             }

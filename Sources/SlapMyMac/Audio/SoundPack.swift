@@ -14,6 +14,8 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
     case thunder
     case wwe
     case metal
+    case slap
+    case mario
     case custom
 
     var id: String { rawValue }
@@ -33,6 +35,8 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
         case .thunder: return "Thunder"
         case .wwe: return "WWE"
         case .metal: return "Metal"
+        case .slap: return "Slap"
+        case .mario: return "Mario"
         case .custom: return "Custom"
         }
     }
@@ -52,6 +56,8 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
         case .thunder: return "Thunder cracks & rumbles"
         case .wwe: return "Body slams & crowd oohs"
         case .metal: return "Clang, gong, anvil strikes"
+        case .slap: return "Claques, gifles & fessées"
+        case .mario: return "Jump, coin, stomp, power-up"
         case .custom: return "Your own MP3 files"
         }
     }
@@ -72,6 +78,8 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
         case .thunder: return "cloud.bolt.fill"
         case .wwe: return "figure.wrestling"
         case .metal: return "hammer.fill"
+        case .slap: return "hand.raised.fill"
+        case .mario: return "star.fill"
         case .custom: return "folder.fill"
         }
     }

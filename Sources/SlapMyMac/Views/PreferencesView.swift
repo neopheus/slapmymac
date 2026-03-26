@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct PreferencesView: View {
     @EnvironmentObject var appState: AppState
@@ -40,7 +41,7 @@ struct PreferencesView: View {
                     Label("About", systemImage: "info.circle.fill")
                 }
         }
-        .frame(width: 500, height: 380)
+        .frame(width: 500, height: 500)
     }
 }
 
@@ -75,6 +76,9 @@ private struct GeneralTab: View {
                             .foregroundStyle(.tertiary)
                     }
                 }
+                .onChange(of: appState.settings.sensitivity) {
+                    appState.applySensitivitySettings()
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
                     HStack {
@@ -95,6 +99,9 @@ private struct GeneralTab: View {
                     Text("Minimum delay between sound effects")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                .onChange(of: appState.settings.cooldownMs) {
+                    appState.applySensitivitySettings()
                 }
             }
 
@@ -129,13 +136,187 @@ private struct GeneralTab: View {
                 }
             }
 
+            Section("Lid Performance") {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Poll Rate")
+                        Spacer()
+                        Text("\(Int(appState.settings.lidPollHz)) Hz")
+                            .foregroundStyle(.secondary)
+                            .font(.system(.callout, design: .monospaced))
+                    }
+                    Slider(value: $appState.settings.lidPollHz, in: 15...120, step: 5)
+                    HStack {
+                        Text("15 Hz (light)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                        Text("120 Hz (fastest)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .onChange(of: appState.settings.lidPollHz) {
+                    appState.applyLidPerformanceSettings()
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Angle Smoothing")
+                        Spacer()
+                        Text("\(Int(appState.settings.angleSmoothingTau * 1000)) ms")
+                            .foregroundStyle(.secondary)
+                            .font(.system(.callout, design: .monospaced))
+                    }
+                    Slider(value: $appState.settings.angleSmoothingTau, in: 0.01...0.30, step: 0.01)
+                    Text("Time constant — lower = faster response, noisier signal")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .onChange(of: appState.settings.angleSmoothingTau) {
+                    appState.applyLidPerformanceSettings()
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Event Cooldown")
+                        Spacer()
+                        Text(String(format: "%.1fs", appState.settings.lidEventCooldown))
+                            .foregroundStyle(.secondary)
+                            .font(.system(.callout, design: .monospaced))
+                    }
+                    Slider(value: $appState.settings.lidEventCooldown, in: 0.3...5.0, step: 0.1)
+                    Text("Minimum delay between lid open/close/slam events")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .onChange(of: appState.settings.lidEventCooldown) {
+                    appState.applyLidPerformanceSettings()
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Lid audio: AVAudioEngine with ~6ms hardware buffer")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section("Performance") {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Sample Rate")
+                        Spacer()
+                        Text(appState.settings.sampleRateLabel)
+                            .foregroundStyle(.secondary)
+                            .font(.system(.callout, design: .monospaced))
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(appState.settings.decimationFactor) },
+                            set: { appState.settings.decimationFactor = Int($0) }
+                        ),
+                        in: 2...8,
+                        step: 1
+                    )
+                    HStack {
+                        Text("400 Hz (fastest)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        Spacer()
+                        Text("100 Hz (lightest)")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .onChange(of: appState.settings.decimationFactor) {
+                    appState.applyPerformanceSettings()
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Post-Impact Suppression")
+                        Spacer()
+                        Text("\(appState.settings.suppressionMs) ms")
+                            .foregroundStyle(.secondary)
+                            .font(.system(.callout, design: .monospaced))
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(appState.settings.suppressionSamples) },
+                            set: { appState.settings.suppressionSamples = Int($0) }
+                        ),
+                        in: 5...50,
+                        step: 1
+                    )
+                    Text("Blocks re-triggers from aftershock vibrations")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .onChange(of: appState.settings.suppressionSamples) {
+                    appState.applyPerformanceSettings()
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Kurtosis Evaluation")
+                        Spacer()
+                        Text(appState.settings.kurtosisEvalInterval == 1 ? "Every sample" : "Every \(appState.settings.kurtosisEvalInterval) samples")
+                            .foregroundStyle(.secondary)
+                            .font(.callout)
+                    }
+                    Slider(
+                        value: Binding(
+                            get: { Double(appState.settings.kurtosisEvalInterval) },
+                            set: { appState.settings.kurtosisEvalInterval = Int($0) }
+                        ),
+                        in: 1...10,
+                        step: 1
+                    )
+                    Text("Lower = faster detection, slightly more CPU")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .onChange(of: appState.settings.kurtosisEvalInterval) {
+                    appState.applyPerformanceSettings()
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "waveform.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Audio Engine: Pre-decoded PCM buffers (~2ms latency)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
             Section("Menu Bar") {
                 Toggle("Show slap count in menu bar", isOn: $appState.settings.showSlapCountInMenuBar)
             }
 
             Section("MCP Server") {
                 Toggle("Enable local MCP server", isOn: $appState.settings.mcpServerEnabled)
+                    .onChange(of: appState.settings.mcpServerEnabled) {
+                        appState.toggleMCPServer()
+                    }
                 Text("Exposes slap data on http://localhost:7749 for AI tools and scripts")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Global Hotkey") {
+                HStack {
+                    Text("Toggle listening")
+                    Spacer()
+                    Text("Cmd + Shift + S")
+                        .font(.system(.caption, design: .monospaced))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.quaternary)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+                Text("Works from any app — mutes/unmutes slap detection")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -344,8 +525,16 @@ private struct StatsTab: View {
             }
 
             Section {
-                Button("Clear All History", role: .destructive) {
-                    appState.history.clearHistory()
+                HStack {
+                    Button("Export CSV...") {
+                        exportCSV()
+                    }
+
+                    Spacer()
+
+                    Button("Clear All History", role: .destructive) {
+                        appState.history.clearHistory()
+                    }
                 }
             }
         }
@@ -360,6 +549,18 @@ private struct StatsTab: View {
             return "\(mins)m \(secs)s"
         }
         return "\(secs)s"
+    }
+
+    private func exportCSV() {
+        let csv = appState.history.exportCSV()
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "slap-history.csv"
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.message = "Export slap history as CSV"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            try? csv.write(to: url, atomically: true, encoding: .utf8)
+        }
     }
 }
 
@@ -395,7 +596,7 @@ private struct SensorsTab: View {
                     }
                 }
 
-                Text("Uses IOKit HID to read the Bosch BMI286 IMU at ~100Hz")
+                Text("Uses IOKit HID to read the Bosch BMI286 IMU at ~\(appState.settings.sampleRateHz)Hz")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

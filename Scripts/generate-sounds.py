@@ -588,6 +588,189 @@ def gen_metal():
         s = reverb_simple(s, delay=0.03, feedback=0.35, n_taps=5)
         save("Metal", i, s, name)
 
+def gen_slap():
+    print("🔊 Slap (claques & fessées)")
+
+    # 00: Gifle — sharp face slap with high-frequency crack and ringing
+    crack = env_exp(highpass(noise(0.03), 3000), attack=0.0003, decay_rate=60.0)
+    sting = env_exp(sine(2200, 0.4), decay_rate=6.0)
+    sting2 = env_exp(sine(3800, 0.3), decay_rate=8.0)
+    head_turn = env_ad(sweep(400, 150, 0.15), attack=0.01, decay=0.14)
+    s = mix(scale(crack, 0.9), scale(sting, 0.25), scale(sting2, 0.15), scale(head_turn, 0.2))
+    s = reverb_simple(s, delay=0.015, feedback=0.2, n_taps=3)
+    save("Slap", 0, s, "gifle")
+
+    # 01: Grosse gifle — heavier face slap, deeper ring, more reverb
+    crack = env_exp(highpass(noise(0.04), 2500), attack=0.0003, decay_rate=45.0)
+    sting = env_exp(sine(1800, 0.5), decay_rate=4.5)
+    jaw = env_exp(sweep(300, 80, 0.2), decay_rate=8.0)
+    s = mix(scale(crack, 0.8), scale(sting, 0.3), scale(jaw, 0.35))
+    s = reverb_simple(s, delay=0.025, feedback=0.3, n_taps=4)
+    save("Slap", 1, s, "grosse gifle")
+
+    # 02: Fessée légère — soft spank: muffled thump, less crack, more body
+    thump = env_exp(sine(120, 0.25), attack=0.001, decay_rate=8.0)
+    skin = env_exp(bandpass(noise(0.08), 800, 2500), attack=0.0005, decay_rate=18.0)
+    wobble = env_exp(sine(180, 0.2), decay_rate=10.0)
+    s = mix(scale(thump, 0.5), scale(skin, 0.6), scale(wobble, 0.2))
+    save("Slap", 2, s, "fessée légère")
+
+    # 03: Fessée claquante — sharp spank with resonant body
+    snap = env_exp(highpass(noise(0.04), 1800), attack=0.0003, decay_rate=35.0)
+    body = env_exp(sweep(250, 80, 0.2), decay_rate=6.0)
+    flesh = env_exp(lowpass(noise(0.15), 1200), decay_rate=8.0)
+    s = mix(scale(snap, 0.7), scale(body, 0.4), scale(flesh, 0.3))
+    s = reverb_simple(s, delay=0.01, feedback=0.12)
+    save("Slap", 3, s, "fessée claquante")
+
+    # 04: Grosse fessée — heavy spank: deep bass + long wobble + loud crack
+    crack = env_exp(bandpass(noise(0.06), 1000, 4000), attack=0.0003, decay_rate=25.0)
+    bass = env_exp(sweep(180, 50, 0.35), decay_rate=4.0)
+    jiggle = [math.sin(2*math.pi*90*t/SR + 2.0*math.sin(2*math.pi*6*t/SR))
+              for t in range(n_samples(0.3))]
+    jiggle = env_exp(jiggle, decay_rate=5.0)
+    s = mix(scale(crack, 0.6), scale(bass, 0.5), scale(jiggle, 0.25))
+    s = reverb_simple(s, delay=0.02, feedback=0.2)
+    save("Slap", 4, s, "grosse fessée")
+
+    # 05: Claque sèche — dry, sharp slap with almost no reverb
+    pop = env_exp(highpass(noise(0.015), 4000), attack=0.0002, decay_rate=80.0)
+    mid = env_exp(bandpass(noise(0.05), 1500, 5000), attack=0.0003, decay_rate=30.0)
+    s = mix(scale(pop, 0.8), scale(mid, 0.5))
+    save("Slap", 5, s, "claque sèche")
+
+    # 06: Main ouverte — open palm with cupped resonance
+    impact = env_exp(bandpass(noise(0.05), 600, 3000), attack=0.0005, decay_rate=20.0)
+    cup_resonance = env_exp(sine(350, 0.3), decay_rate=5.0)
+    cup2 = env_exp(sine(700, 0.2), decay_rate=7.0)
+    air_pop = env_exp(lowpass(noise(0.02), 600), attack=0.0003, decay_rate=50.0)
+    s = mix(scale(impact, 0.5), scale(cup_resonance, 0.35), scale(cup2, 0.2), scale(air_pop, 0.3))
+    s = reverb_simple(s, delay=0.03, feedback=0.25, n_taps=3)
+    save("Slap", 6, s, "main ouverte")
+
+    # 07: Tape-cul — quick low spank sequence (2 rapid hits)
+    def make_spank(pitch, crack_hp, dur):
+        c = env_exp(highpass(noise(dur * 0.3), crack_hp), attack=0.0003, decay_rate=30.0)
+        b = env_exp(sweep(pitch, pitch * 0.3, dur), decay_rate=7.0)
+        return mix(scale(c, 0.6), scale(b, 0.4))
+    s1 = make_spank(200, 1500, 0.12)
+    gap = silence(0.04)
+    s2 = make_spank(220, 1600, 0.10)
+    s = concat(s1, gap, s2)
+    save("Slap", 7, s, "tape-cul")
+
+    # 08: Baffe — heavy face slap with jaw thud and brief ear ring
+    impact = env_exp(highpass(noise(0.035), 2000), attack=0.0003, decay_rate=40.0)
+    jaw = env_exp(sweep(350, 60, 0.25), decay_rate=5.0)
+    ear_ring = env_ad(sine(4000, 0.6), attack=0.05, decay=0.55)
+    s = mix(scale(impact, 0.7), scale(jaw, 0.4), scale(ear_ring, 0.08))
+    s = reverb_simple(s, delay=0.02, feedback=0.25, n_taps=4)
+    save("Slap", 8, s, "baffe")
+
+    # 09: Fessée qui claque et résonne — spanking with room echo
+    snap = env_exp(highpass(noise(0.05), 1400), attack=0.0004, decay_rate=22.0)
+    thump = env_exp(sweep(220, 60, 0.3), decay_rate=5.0)
+    rattle = env_exp(bandpass(noise(0.2), 300, 1500), decay_rate=6.0)
+    s = mix(scale(snap, 0.6), scale(thump, 0.4), scale(rattle, 0.2))
+    s = reverb_simple(s, delay=0.06, feedback=0.4, n_taps=6)
+    save("Slap", 9, s, "fessée résonante")
+
+def gen_mario():
+    print("🔊 Mario")
+    # All sounds use square/pulse waves for authentic NES feel
+
+    # 00: Jump (rising sweep)
+    n = n_samples(0.15)
+    s = []
+    for t in range(n):
+        freq = 300 + 600 * (t / n) ** 0.5
+        s.append(1.0 if math.sin(2*math.pi*freq*t/SR) > 0 else -1.0)
+    s = env_ad(s, attack=0.001, decay=0.14)
+    save("Mario", 0, s, "jump")
+
+    # 01: Coin (two-tone ding)
+    t1 = env_exp(square(988, 0.06), decay_rate=20.0)
+    t2 = env_exp(square(1319, 0.3), decay_rate=4.0)
+    s = concat(t1, t2)
+    save("Mario", 1, s, "coin")
+
+    # 02: Stomp (enemy squash — descending blip)
+    n = n_samples(0.1)
+    s = []
+    for t in range(n):
+        freq = 500 * math.exp(-8.0 * t / n)
+        s.append(1.0 if math.sin(2*math.pi*freq*t/SR) > 0 else -1.0)
+    s = env_ad(s, attack=0.001, decay=0.09)
+    s = mix(s, scale(env_exp(lowpass(noise(0.08), 800), decay_rate=20.0), 0.3))
+    save("Mario", 2, s, "stomp")
+
+    # 03: Power-up (ascending arpeggio)
+    notes = [262, 330, 392, 523, 659, 784]
+    parts = []
+    for note in notes:
+        parts.extend(env_ad(square(note, 0.08), attack=0.001, decay=0.07))
+    save("Mario", 3, parts, "power up")
+
+    # 04: Fireball (descending wobble)
+    n = n_samples(0.25)
+    s = []
+    for t in range(n):
+        freq = 800 * math.exp(-5.0 * t / n)
+        wobble = 50 * math.sin(2 * math.pi * 15 * t / SR)
+        val = 1.0 if math.sin(2*math.pi*(freq + wobble)*t/SR) > 0 else -1.0
+        s.append(val)
+    s = env_ad(s, attack=0.001, decay=0.24)
+    save("Mario", 4, s, "fireball")
+
+    # 05: 1-Up (classic ascending melody: E5 G5 E6 C6 D6 G6)
+    melody = [(659, 0.08), (784, 0.08), (1319, 0.08), (1047, 0.08), (1175, 0.08), (1568, 0.16)]
+    parts = []
+    for freq, dur in melody:
+        parts.extend(env_ad(square(freq, dur), attack=0.002, decay=dur * 0.85))
+    save("Mario", 5, parts, "1-up")
+
+    # 06: Pipe (descending warp)
+    n = n_samples(0.3)
+    s = []
+    for t in range(n):
+        frac = t / n
+        freq = 600 - 400 * frac
+        # Duty cycle modulation for pipe-like sound
+        duty = 0.3 + 0.2 * math.sin(2 * math.pi * 3 * t / SR)
+        phase = (freq * t / SR) % 1.0
+        s.append(1.0 if phase < duty else -1.0)
+    s = env_ad(s, attack=0.01, decay=0.28)
+    s = lowpass(s, 2000)
+    save("Mario", 6, s, "pipe")
+
+    # 07: Bump (hit block from below)
+    impact = env_exp(square(160, 0.08), decay_rate=20.0)
+    ring = env_exp(square(523, 0.15), decay_rate=8.0)
+    s = mix(scale(impact, 0.7), scale(ring, 0.5))
+    save("Mario", 7, s, "bump")
+
+    # 08: Break brick (crumble)
+    n = n_samples(0.2)
+    s = []
+    for t in range(n):
+        freq = 300 * math.exp(-6.0 * t / n)
+        s.append(1.0 if math.sin(2*math.pi*freq*t/SR) > 0 else -1.0)
+    brick_noise = env_exp(lowpass(noise(0.2), 1500), decay_rate=6.0)
+    s = mix(scale(env_ad(s, attack=0.001, decay=0.19), 0.6), scale(brick_noise, 0.4))
+    save("Mario", 8, s, "break brick")
+
+    # 09: Game over (descending sad melody)
+    melody = [(392, 0.15), (330, 0.15), (262, 0.15), (220, 0.15), (175, 0.3)]
+    parts = []
+    for freq, dur in melody:
+        tone = square(freq, dur)
+        # Add triangle wave for softer feel
+        tri = saw(freq, dur)
+        tri = lowpass(tri, freq * 2)
+        combined = mix(scale(tone, 0.5), scale(tri, 0.5))
+        parts.extend(env_ad(combined, attack=0.005, decay=dur * 0.9))
+    save("Mario", 9, parts, "game over")
+
 # ── Main ────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -602,4 +785,6 @@ if __name__ == "__main__":
     gen_thunder()
     gen_wwe()
     gen_metal()
+    gen_slap()
+    gen_mario()
     print("\n✅ Done! All sound packs generated.")

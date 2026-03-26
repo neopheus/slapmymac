@@ -2,24 +2,35 @@
 set -euo pipefail
 
 # Build SlapMyMac and create an .app bundle
-# Usage: ./Scripts/build.sh [--release]
+# Usage: ./Scripts/build.sh [--release] [--sandbox]
+#
+# Options:
+#   --release    Build in release mode
+#   --sandbox    Sign with App Sandbox entitlements (required for App Store)
+#
+# Environment variables (optional):
+#   DEVELOPER_ID   Code signing identity (default: ad-hoc "-")
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 BUILD_DIR="$PROJECT_DIR/.build"
 APP_NAME="SlapMyMac"
 APP_BUNDLE="$BUILD_DIR/$APP_NAME.app"
+ENTITLEMENTS="$PROJECT_DIR/Sources/SlapMyMac/Resources/SlapMyMac.entitlements"
 
-# Determine build configuration
-if [[ "${1:-}" == "--release" ]]; then
-    CONFIG="release"
-    SWIFT_FLAGS="-c release"
-else
-    CONFIG="debug"
-    SWIFT_FLAGS=""
-fi
+# Parse arguments
+CONFIG="debug"
+SWIFT_FLAGS=""
+SANDBOX=false
 
-echo "Building SlapMyMac ($CONFIG)..."
+for arg in "$@"; do
+    case "$arg" in
+        --release) CONFIG="release"; SWIFT_FLAGS="-c release" ;;
+        --sandbox) SANDBOX=true ;;
+    esac
+done
+
+echo "Building SlapMyMac ($CONFIG$([ "$SANDBOX" = true ] && echo ", sandboxed"))..."
 
 cd "$PROJECT_DIR"
 
@@ -55,6 +66,14 @@ fi
 SOUNDS_DIR="$PROJECT_DIR/Sources/SlapMyMac/Resources/Sounds"
 if [[ -d "$SOUNDS_DIR" ]]; then
     cp -R "$SOUNDS_DIR" "$APP_BUNDLE/Contents/Resources/"
+fi
+
+# Sign with entitlements if --sandbox is set
+if [[ "$SANDBOX" == true ]]; then
+    SIGNING_ID="${DEVELOPER_ID:--}"
+    echo "Signing with sandbox entitlements (identity: $SIGNING_ID)..."
+    codesign --force --sign "$SIGNING_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+    echo "Signed with App Sandbox entitlements."
 fi
 
 echo ""

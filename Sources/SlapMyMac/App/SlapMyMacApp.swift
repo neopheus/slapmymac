@@ -18,7 +18,8 @@ struct SlapMyMacApp: App {
                 }
         } label: {
             HStack(spacing: 2) {
-                Image(systemName: appState.isListening ? "hand.raised.fill" : "hand.raised.slash")
+                Image(systemName: appState.slapFlash ? "burst.fill" :
+                    (appState.isListening ? "hand.raised.fill" : "hand.raised.slash"))
                 if appState.settings.showSlapCountInMenuBar && appState.slapCount > 0 {
                     Text("\(appState.slapCount)")
                         .font(.system(size: 10, weight: .bold, design: .rounded))

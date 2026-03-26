@@ -9,12 +9,14 @@ enum Constants {
     static let xOffset: Int = 6
     static let yOffset: Int = 10
     static let zOffset: Int = 14
-    static let decimationFactor: Int = 8  // Keep 1 in 8 samples (~100Hz from ~800Hz)
+    static let defaultDecimationFactor: Int = 4  // Keep 1 in N samples (4 → ~200Hz, 8 → ~100Hz)
 
     /// Detection defaults
     static let defaultSensitivity: Double = 0.05   // Minimum amplitude in g
-    static let defaultCooldownMs: Int = 750
+    static let defaultCooldownMs: Int = 350
     static let highPassAlpha: Double = 0.95
+    static let defaultSuppressionSamples: Int = 15  // Post-impact suppression (at ~200Hz: 15 = ~75ms)
+    static let defaultKurtosisEvalInterval: Int = 1  // Evaluate kurtosis every N samples (1 = every sample)
 
     /// STA/LTA thresholds
     static let staLtaOnThresholds: [Double] = [3.0, 2.5, 2.0]
@@ -32,6 +34,12 @@ enum Constants {
     static let peakMadBufferSize: Int = 200
     static let peakMadSigmaThreshold: Double = 2.0
     static let madScaleFactor: Double = 1.4826
+
+    /// Lid sensor defaults
+    static let defaultLidPollHz: Double = 60        // 60Hz for responsive lid tracking
+    static let defaultAngleSmoothingTau: Double = 0.05   // 50ms time constant — fast angle response
+    static let defaultVelocitySmoothingTau: Double = 0.03 // 30ms — fast velocity response
+    static let defaultLidEventCooldown: Double = 1.0     // 1s between lid events (was 2s)
 
     /// Audio
     static let volumeMin: Float = 0.125

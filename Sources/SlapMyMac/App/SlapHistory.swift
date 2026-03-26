@@ -98,6 +98,16 @@ final class SlapHistory: ObservableObject {
         sessionStart = Date()
     }
 
+    /// Export all records as CSV.
+    func exportCSV() -> String {
+        let formatter = ISO8601DateFormatter()
+        var csv = "timestamp,amplitude,severity,detectorCount,soundMode\n"
+        for r in records {
+            csv += "\(formatter.string(from: r.timestamp)),\(r.amplitude),\(r.severity),\(r.detectorCount),\(r.soundMode)\n"
+        }
+        return csv
+    }
+
     // MARK: - Persistence
 
     private func save() {

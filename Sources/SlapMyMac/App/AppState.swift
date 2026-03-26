@@ -10,6 +10,7 @@ final class AppState: ObservableObject {
     @Published var errorMessage: String?
     @Published var lastSampleDebug: String = "—"
     @Published var lastLidEvent: LidEvent?
+    @Published var slapFlash = false
 
     var settings = UserSettings()
     let lidAngle = LidAngleSensor()
@@ -26,6 +27,7 @@ final class AppState: ObservableObject {
     private var lidPollTimer: Timer?
     private var sampleCount: Int = 0
     private var mcpRefreshCounter: Int = 0
+    private let globalHotKey = GlobalHotKey()
 
     init() {
         loadSoundPack()
@@ -38,7 +40,10 @@ final class AppState: ObservableObject {
             lidAngle.start()
             startLidEventPolling()
             updateMCPSnapshot()
-            mcpServer.start()
+            if settings.mcpServerEnabled {
+                mcpServer.start()
+            }
+            setupGlobalHotKey()
         }
     }
 
@@ -49,6 +54,9 @@ final class AppState: ObservableObject {
 
         detector.updateSensitivity(settings.sensitivity)
         detector.updateCooldown(settings.cooldownMs)
+        detector.updateSuppressionSamples(settings.suppressionSamples)
+        detector.updateKurtosisEvalInterval(settings.kurtosisEvalInterval)
+        accelerometer.decimationFactor = settings.decimationFactor
 
         let stream = accelerometer.start()
         isListening = true
@@ -80,16 +88,61 @@ final class AppState: ObservableObject {
         if isListening { stopListening() } else { startListening() }
     }
 
+    /// Apply updated performance settings. Restarts the sensor pipeline to pick up new decimation factor.
+    func applyPerformanceSettings() {
+        detector.updateSuppressionSamples(settings.suppressionSamples)
+        detector.updateKurtosisEvalInterval(settings.kurtosisEvalInterval)
+        detector.updateCooldown(settings.cooldownMs)
+
+        // Decimation factor requires sensor restart
+        if isListening {
+            stopListening()
+            startListening()
+        }
+    }
+
+    /// Apply sensitivity and cooldown changes to the detector in real-time.
+    func applySensitivitySettings() {
+        detector.updateSensitivity(settings.sensitivity)
+        detector.updateCooldown(settings.cooldownMs)
+    }
+
+    /// Start or stop the MCP server based on settings.
+    func toggleMCPServer() {
+        if settings.mcpServerEnabled {
+            mcpServer.start()
+        } else {
+            mcpServer.stop()
+        }
+    }
+
+    // MARK: - Global Hotkey
+
+    private func setupGlobalHotKey() {
+        globalHotKey.register { [weak self] in
+            DispatchQueue.main.async {
+                self?.toggleListening()
+            }
+        }
+    }
+
     // MARK: - Lid Audio + Event Polling
 
     private func startLidEventPolling() {
         guard lidAngle.isAvailable else { return }
 
+        // Apply lid performance settings
+        lidAngle.pollHz = settings.lidPollHz
+        lidAngle.angleSmoothingTau = settings.angleSmoothingTau
+        lidAngle.velocitySmoothingTau = settings.velocitySmoothingTau
+        lidEventDetector.updateEventCooldown(settings.lidEventCooldown)
+
         // Start the lid audio engine
         updateLidAudioMode()
 
-        // Poll at 30Hz for smooth audio modulation
-        lidPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+        // Poll at configured rate for smooth audio modulation
+        let interval = 1.0 / max(1, settings.lidPollHz)
+        lidPollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.pollLid()
             }
@@ -117,6 +170,27 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Apply updated lid performance settings. Restarts polling timer if rate changed.
+    func applyLidPerformanceSettings() {
+        lidAngle.angleSmoothingTau = settings.angleSmoothingTau
+        lidAngle.velocitySmoothingTau = settings.velocitySmoothingTau
+        lidEventDetector.updateEventCooldown(settings.lidEventCooldown)
+
+        // Clamp poll rate to safe range
+        let hz = max(15, min(120, settings.lidPollHz))
+        lidAngle.pollHz = hz
+
+        // Poll rate change requires timer restart
+        lidPollTimer?.invalidate()
+        lidPollTimer = nil
+        let interval = 1.0 / hz
+        lidPollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.pollLid()
+            }
+        }
+    }
+
     func updateLidAudioMode() {
         if settings.lidSoundsEnabled {
             lidSoundManager.setMode(settings.lidAudioMode)
@@ -140,7 +214,13 @@ final class AppState: ObservableObject {
                 ) {
                     _ = resolvedURL.startAccessingSecurityScopedResource()
                     currentPack = SoundPack.custom(from: resolvedURL)
+                    if currentPack?.isEmpty == true {
+                        errorMessage = "Custom folder is empty — no MP3 files found"
+                    } else {
+                        errorMessage = nil
+                    }
                     soundManager.preload(currentPack!)
+                    slapTracker.reset()
                     return
                 }
             }
@@ -150,6 +230,11 @@ final class AppState: ObservableObject {
         }
 
         if let pack = currentPack {
+            if pack.isEmpty && mode == .custom {
+                errorMessage = "Custom folder is empty — no MP3 files found"
+            } else {
+                errorMessage = nil
+            }
             soundManager.preload(pack)
         }
         slapTracker.reset()
@@ -267,6 +352,13 @@ final class AppState: ObservableObject {
         lastImpact = event
         slapCount += 1
         settings.lifetimeSlaps += 1
+
+        // Visual feedback — flash the menu bar icon
+        slapFlash = true
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(250))
+            slapFlash = false
+        }
 
         // Record in history
         history.record(event, mode: settings.soundMode)

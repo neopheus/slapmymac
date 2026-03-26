@@ -24,7 +24,7 @@ final class CreakAudioEngine {
     // Parameters (from LidAngleSensor)
     private let velocityFull: Double = 10.0     // Full volume threshold
     private let velocityQuiet: Double = 100.0   // Min volume threshold
-    private let deadzone: Double = 1.0          // Ignore below this
+    private let deadzone: Double = 3.0          // Ignore below 3°/s — rejects sensor noise
     private let minRate: Float = 0.80           // Lowest pitch
     private let maxRate: Float = 1.10           // Highest pitch
     private let gainRampMs: Double = 50.0       // Volume smoothing tau
@@ -137,6 +137,9 @@ final class CreakAudioEngine {
 
         engine.connect(playerNode, to: varispeed, format: format)
         engine.connect(varispeed, to: engine.mainMixerNode, format: format)
+
+        // Reduce hardware buffer for lower latency (~5.8ms at 44.1kHz)
+        engine.outputNode.auAudioUnit.maximumFramesToRender = 256
     }
 
     private func smoothstep(_ t: Double) -> Double {
