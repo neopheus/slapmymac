@@ -78,12 +78,16 @@ if [[ -d "$SPARKLE_FW" ]]; then
     echo "Sparkle.framework bundled."
 fi
 
-# Sign with entitlements if --sandbox is set
+# Re-sign everything (install_name_tool invalidates the ad-hoc signature)
+SIGNING_ID="${DEVELOPER_ID:--}"
 if [[ "$SANDBOX" == true ]]; then
-    SIGNING_ID="${DEVELOPER_ID:--}"
     echo "Signing with sandbox entitlements (identity: $SIGNING_ID)..."
-    codesign --force --sign "$SIGNING_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+    codesign --force --deep --sign "$SIGNING_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
     echo "Signed with App Sandbox entitlements."
+else
+    echo "Ad-hoc signing..."
+    codesign --force --deep --sign "-" "$APP_BUNDLE"
+    echo "Ad-hoc signed."
 fi
 
 echo ""
