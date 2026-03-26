@@ -95,7 +95,7 @@ final class AppState: ObservableObject {
         // Process samples on a detached background task to keep main thread free.
         // Only hop to @MainActor when an actual impact is detected.
         let det = detector
-        sensorTask = Task.detached(priority: .userInitiated) { [weak self] in
+        sensorTask = Task.detached(priority: .medium) { [weak self] in
             var count = 0
             for await sample in stream {
                 guard let self = self else { break }
@@ -255,11 +255,27 @@ final class AppState: ObservableObject {
     // MARK: - Global Hotkey
 
     private func setupGlobalHotKey() {
-        globalHotKey.register { [weak self] in
+        globalHotKey.register(
+            keyCode: UInt32(settings.hotKeyCode),
+            modifiers: UInt32(settings.hotKeyModifiers)
+        ) { [weak self] in
             DispatchQueue.main.async {
                 self?.toggleListening()
             }
         }
+    }
+
+    /// Re-register global hotkey after user changes the key combination.
+    func applyHotKey() {
+        globalHotKey.register(
+            keyCode: UInt32(settings.hotKeyCode),
+            modifiers: UInt32(settings.hotKeyModifiers)
+        ) { [weak self] in
+            DispatchQueue.main.async {
+                self?.toggleListening()
+            }
+        }
+        logger.log("Hotkey changed: code=\(settings.hotKeyCode) modifiers=\(settings.hotKeyModifiers)")
     }
 
     // MARK: - Lid Polling (single adaptive timer — no duplicate with LidAngleSensor)
@@ -340,18 +356,51 @@ final class AppState: ObservableObject {
     }
 
     private func preloadLidEventSounds() {
-        // Lid event sounds are stored in Resources/Sounds/Lid/ (00=open, 01=close, 02=slam)
         let lidPack = SoundPack.bundled(.lid)
-        if !lidPack.isEmpty {
-            lidEventSoundManager.masterVolume = Float(settings.masterVolume)
-            lidEventSoundManager.preload(lidPack)
+
+        // Collect all URLs: bundled + custom overrides
+        var allUrls = lidPack.urls
+        for path in [settings.customLidOpenPath, settings.customLidClosePath, settings.customLidSlamPath] {
+            if !path.isEmpty && FileManager.default.fileExists(atPath: path) {
+                allUrls.append(URL(fileURLWithPath: path))
+            }
         }
+
+        if !allUrls.isEmpty {
+            let combined = SoundPack(mode: .lid, urls: allUrls)
+            lidEventSoundManager.masterVolume = Float(settings.masterVolume)
+            lidEventSoundManager.preload(combined)
+        }
+    }
+
+    /// Re-preload lid event sounds when custom paths change.
+    func reloadLidEventSounds() {
+        preloadLidEventSounds()
     }
 
     private func playLidEventSound(_ event: LidEvent) {
         guard settings.lidEventSoundsEnabled else { return }
         if settings.respectFocus && isFocusModeActive { return }
+        if isMuted { return }
 
+        // Check for custom sound first, fall back to bundled
+        let customPath: String
+        switch event {
+        case .opened: customPath = settings.customLidOpenPath
+        case .closed: customPath = settings.customLidClosePath
+        case .slammed: customPath = settings.customLidSlamPath
+        case .creaking: return // Continuous audio handles this
+        }
+
+        if !customPath.isEmpty {
+            let url = URL(fileURLWithPath: customPath)
+            if FileManager.default.fileExists(atPath: customPath) {
+                lidEventSoundManager.play(url: url)
+                return
+            }
+        }
+
+        // Fall back to bundled lid sounds
         let lidPack = SoundPack.bundled(.lid)
         guard !lidPack.isEmpty else { return }
 
@@ -360,7 +409,7 @@ final class AppState: ObservableObject {
         case .opened: index = 0
         case .closed: index = 1
         case .slammed: index = 2
-        case .creaking: return // Continuous audio handles this
+        case .creaking: return
         }
 
         guard index < lidPack.urls.count else { return }
@@ -582,6 +631,10 @@ final class AppState: ObservableObject {
     // MARK: - Impact Handling (called on @MainActor only when a slap is detected)
 
     private func handleDetectedImpact(_ event: ImpactEvent) {
+        // Ignore entirely while a slap sound is still playing or lid audio is active
+        if soundManager.isPlayingSlap { return }
+        if lidSoundManager.isEngineActive { return }
+
         lastImpact = event
         slapCount += 1
         settings.lifetimeSlaps += 1

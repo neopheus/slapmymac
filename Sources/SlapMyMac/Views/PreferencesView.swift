@@ -163,6 +163,24 @@ private struct GeneralTab: View {
 
                 Toggle(L10n.tr("general.lidEvents"), isOn: $appState.settings.lidEventSoundsEnabled)
 
+                if appState.settings.lidEventSoundsEnabled {
+                    LidSoundPicker(
+                        label: L10n.tr("general.lidSound.open"),
+                        path: $appState.settings.customLidOpenPath,
+                        onChanged: { appState.reloadLidEventSounds() }
+                    )
+                    LidSoundPicker(
+                        label: L10n.tr("general.lidSound.close"),
+                        path: $appState.settings.customLidClosePath,
+                        onChanged: { appState.reloadLidEventSounds() }
+                    )
+                    LidSoundPicker(
+                        label: L10n.tr("general.lidSound.slam"),
+                        path: $appState.settings.customLidSlamPath,
+                        onChanged: { appState.reloadLidEventSounds() }
+                    )
+                }
+
                 if appState.settings.lidSoundsEnabled {
                     Picker(L10n.tr("general.lidMode"), selection: $appState.settings.lidAudioMode) {
                         ForEach(LidAudioMode.allCases) { mode in
@@ -336,22 +354,146 @@ private struct GeneralTab: View {
             }
 
             Section(L10n.tr("general.hotkey")) {
-                HStack {
-                    Text(L10n.tr("general.hotkeyToggle"))
-                    Spacer()
-                    Text(L10n.tr("general.hotkeyDefault"))
-                        .font(.system(.caption, design: .monospaced))
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.quaternary)
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                }
+                HotKeyRecorderRow()
+                    .environmentObject(appState)
                 Text(L10n.tr("general.hotkeyDesc"))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
+    }
+}
+
+// MARK: - Hot Key Recorder
+
+private struct HotKeyRecorderRow: View {
+    @EnvironmentObject var appState: AppState
+    @State private var isRecording = false
+    @State private var monitor: Any?
+
+    var body: some View {
+        HStack {
+            Text(L10n.tr("general.hotkeyToggle"))
+            Spacer()
+            Button {
+                if isRecording {
+                    stopRecording()
+                } else {
+                    startRecording()
+                }
+            } label: {
+                if isRecording {
+                    Text(L10n.tr("general.hotkeyRecording"))
+                        .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Theme.accent)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                } else {
+                    Text(appState.settings.hotKeyLabel)
+                        .font(.system(.caption, design: .monospaced))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.quaternary)
+                        .clipShape(RoundedRectangle(cornerRadius: 4))
+                }
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func startRecording() {
+        isRecording = true
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            // Ignore bare modifier keys (no actual key pressed)
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard !modifiers.isEmpty else {
+                stopRecording()
+                return nil
+            }
+
+            // Require at least one modifier
+            let carbonMods = KeyCodeMap.carbonModifiers(from: modifiers)
+            guard carbonMods != 0 else {
+                stopRecording()
+                return nil
+            }
+
+            appState.settings.hotKeyCode = Int(event.keyCode)
+            appState.settings.hotKeyModifiers = carbonMods
+            appState.applyHotKey()
+            stopRecording()
+            return nil  // Swallow the event
+        }
+    }
+
+    private func stopRecording() {
+        isRecording = false
+        if let monitor = monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+}
+
+// MARK: - Lid Sound Picker
+
+private struct LidSoundPicker: View {
+    let label: String
+    @Binding var path: String
+    let onChanged: () -> Void
+
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.callout)
+            Spacer()
+            if !path.isEmpty {
+                Text(URL(fileURLWithPath: path).lastPathComponent)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Button {
+                    path = ""
+                    onChanged()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Text(L10n.tr("general.lidSound.default"))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            Button(L10n.tr("sounds.browse")) {
+                chooseSoundFile()
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private func chooseSoundFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.mp3, .audio]
+        panel.message = L10n.tr("general.lidSound.chooseDesc")
+        if panel.runModal() == .OK, let url = panel.url {
+            // Store bookmark for sandbox access
+            if let bookmarkData = try? url.bookmarkData(
+                options: .withSecurityScope,
+                includingResourceValuesForKeys: nil,
+                relativeTo: nil
+            ) {
+                UserDefaults.standard.set(bookmarkData, forKey: "lidSound_\(label)")
+            }
+            path = url.path
+            onChanged()
+        }
     }
 }
 
@@ -943,6 +1085,11 @@ private struct AboutTab: View {
                 Text(L10n.tr("about.soundCredits"))
                     .font(.caption2).foregroundStyle(.quaternary)
             }
+
+            Button(L10n.tr("about.checkUpdates")) {
+                AppUpdater.shared.checkForUpdates()
+            }
+            .buttonStyle(.bordered).controlSize(.small)
 
             HStack(spacing: 12) {
                 Button(L10n.tr("about.exportSettings")) { exportSettings() }

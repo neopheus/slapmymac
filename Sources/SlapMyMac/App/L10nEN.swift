@@ -98,6 +98,11 @@ enum L10nEN {
         "general.lidSounds": "Lid Sounds",
         "general.lidContinuous": "Continuous lid audio (creak/theremin)",
         "general.lidEvents": "Lid event sounds (open/close/slam)",
+        "general.lidSound.open": "Open sound",
+        "general.lidSound.close": "Close sound",
+        "general.lidSound.slam": "Slam sound",
+        "general.lidSound.default": "Default (bundled)",
+        "general.lidSound.chooseDesc": "Choose an MP3 file for this lid event",
         "general.lidMode": "Mode",
 
         // General tab - Lid Performance
@@ -140,6 +145,7 @@ enum L10nEN {
         "general.hotkeyToggle": "Toggle listening",
         "general.hotkeyDefault": "Cmd + Shift + S",
         "general.hotkeyDesc": "Works from any app \u{2014} mutes/unmutes slap detection",
+        "general.hotkeyRecording": "Press a key...",
 
         // Sounds tab
         "sounds.voicePack": "Voice Pack",

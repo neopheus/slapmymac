@@ -6,6 +6,9 @@ struct SlapMyMacApp: App {
     @State private var showOnboarding = false
 
     init() {
+        // Start the Sparkle auto-updater
+        _ = AppUpdater.shared
+
         // Force accent color at app level so Settings window
         // has it immediately on first open (not just after refocus)
         NSApplication.shared.appearance = NSApplication.shared.effectiveAppearance
@@ -39,6 +42,11 @@ struct SlapMyMacApp: App {
             PreferencesView()
                 .environmentObject(appState)
                 .tint(Theme.accent)
+                .onAppear {
+                    // Force app activation so the Settings window gets focus immediately.
+                    // Without this, LSUIElement menu bar apps open Settings behind / unfocused.
+                    NSApp.activate(ignoringOtherApps: true)
+                }
         }
     }
 

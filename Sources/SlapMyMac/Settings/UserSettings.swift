@@ -27,6 +27,22 @@ final class UserSettings: ObservableObject {
     @AppStorage("mcpServerEnabled") var mcpServerEnabled: Bool = true
     @AppStorage("showSlapCountInMenuBar") var showSlapCountInMenuBar: Bool = true
     @AppStorage("startupSoundEnabled") var startupSoundEnabled: Bool = false
+    @AppStorage("customLidOpenPath") var customLidOpenPath: String = ""
+    @AppStorage("customLidClosePath") var customLidClosePath: String = ""
+    @AppStorage("customLidSlamPath") var customLidSlamPath: String = ""
+    @AppStorage("hotKeyCode") var hotKeyCode: Int = 1  // Default: 'S' key
+    @AppStorage("hotKeyModifiers") var hotKeyModifiers: Int = 0x0100 | 0x0200  // cmdKey | shiftKey
+
+    /// Human-readable hotkey string
+    var hotKeyLabel: String {
+        var parts: [String] = []
+        if hotKeyModifiers & 0x0100 != 0 { parts.append("⌘") }
+        if hotKeyModifiers & 0x0200 != 0 { parts.append("⇧") }
+        if hotKeyModifiers & 0x0800 != 0 { parts.append("⌥") }
+        if hotKeyModifiers & 0x1000 != 0 { parts.append("⌃") }
+        parts.append(KeyCodeMap.keyName(for: UInt16(hotKeyCode)))
+        return parts.joined(separator: "")
+    }
 
     var customSoundURL: URL? {
         guard !customSoundPath.isEmpty else { return nil }

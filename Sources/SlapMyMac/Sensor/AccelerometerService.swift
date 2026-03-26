@@ -34,7 +34,7 @@ final class AccelerometerService: @unchecked Sendable {
             self.runSensorLoop()
         }
         thread?.name = "SlapMyMac.Accelerometer"
-        thread?.qualityOfService = .userInitiated
+        thread?.qualityOfService = .utility
         thread?.start()
 
         return stream
@@ -313,7 +313,10 @@ final class AccelerometerService: @unchecked Sendable {
             // Set properties to wake the driver
             IORegistryEntrySetCFProperty(service, "SensorPropertyReportingState" as CFString, 1 as CFNumber)
             IORegistryEntrySetCFProperty(service, "SensorPropertyPowerState" as CFString, 1 as CFNumber)
-            IORegistryEntrySetCFProperty(service, "ReportInterval" as CFString, 1000 as CFNumber)
+            // ReportInterval in microseconds: 5000μs = 5ms = 200Hz
+            // (was 1000μs = 1ms = ~1000Hz — caused ~800 unnecessary wakeups/sec)
+            // With decimation factor 4: 200Hz / 4 = 50Hz to detector — sufficient for slap detection
+            IORegistryEntrySetCFProperty(service, "ReportInterval" as CFString, 5000 as CFNumber)
 
             foundAny = true
             IOObjectRelease(service)

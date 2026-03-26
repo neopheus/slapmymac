@@ -18,6 +18,10 @@ final class SoundManager {
 
     private var lastPreloadedPack: SoundPack?
 
+    /// True when a slap sound buffer is actively playing back.
+    /// Set on play(), cleared by the scheduleBuffer completion handler.
+    private(set) var isPlayingSlap = false
+
     init() {
         setupEngine()
         observeRouteChanges()
@@ -83,7 +87,10 @@ final class SoundManager {
         guard let node = availableNode() else { return }
 
         node.volume = amplitude.map { scaledVolume(for: $0) } ?? 1.0
-        node.scheduleBuffer(buffer)
+        isPlayingSlap = true
+        node.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+            self?.isPlayingSlap = false
+        }
         node.play()
     }
 

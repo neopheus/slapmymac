@@ -9,7 +9,7 @@ enum Constants {
     static let xOffset: Int = 6
     static let yOffset: Int = 10
     static let zOffset: Int = 14
-    static let defaultDecimationFactor: Int = 8  // Keep 1 in N samples (8 → ~100Hz, sufficient for slap detection)
+    static let defaultDecimationFactor: Int = 4  // Keep 1 in N samples — at 200Hz input → ~50Hz to detector
 
     /// Detection defaults
     static let defaultSensitivity: Double = 0.05   // Minimum amplitude in g

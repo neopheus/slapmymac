@@ -98,6 +98,11 @@ enum L10nFR {
         "general.lidSounds": "Sons du capot",
         "general.lidContinuous": "Audio continu du capot (grincement/th\u{00E9}r\u{00E9}mine)",
         "general.lidEvents": "Sons d\u{2019}\u{00E9}v\u{00E9}nements du capot (ouverture/fermeture/claquage)",
+        "general.lidSound.open": "Son d'ouverture",
+        "general.lidSound.close": "Son de fermeture",
+        "general.lidSound.slam": "Son de claquage",
+        "general.lidSound.default": "Par d\u{00E9}faut (inclus)",
+        "general.lidSound.chooseDesc": "Choisissez un fichier MP3 pour cet \u{00E9}v\u{00E9}nement",
         "general.lidMode": "Mode",
 
         // General tab - Lid Performance
@@ -140,6 +145,7 @@ enum L10nFR {
         "general.hotkeyToggle": "Basculer l\u{2019}\u{00E9}coute",
         "general.hotkeyDefault": "Cmd + Shift + S",
         "general.hotkeyDesc": "Fonctionne depuis n\u{2019}importe quelle app",
+        "general.hotkeyRecording": "Appuyez sur une touche...",
 
         // Sounds tab
         "sounds.voicePack": "Pack de sons",
