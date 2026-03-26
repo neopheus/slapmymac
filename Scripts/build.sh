@@ -79,15 +79,21 @@ if [[ -d "$SPARKLE_FW" ]]; then
 fi
 
 # Re-sign everything (install_name_tool invalidates the ad-hoc signature)
+# --options runtime enables Hardened Runtime (required for notarization)
 SIGNING_ID="${DEVELOPER_ID:--}"
 if [[ "$SANDBOX" == true ]]; then
     echo "Signing with sandbox entitlements (identity: $SIGNING_ID)..."
-    codesign --force --deep --sign "$SIGNING_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
-    echo "Signed with App Sandbox entitlements."
+    codesign --force --deep --options runtime --sign "$SIGNING_ID" --entitlements "$ENTITLEMENTS" "$APP_BUNDLE"
+    echo "Signed with App Sandbox entitlements + hardened runtime."
 elif [[ "$SIGNING_ID" != "-" ]]; then
-    echo "Signing with: $SIGNING_ID..."
-    codesign --force --deep --sign "$SIGNING_ID" "$APP_BUNDLE"
-    echo "Signed with $SIGNING_ID."
+    echo "Signing with: $SIGNING_ID (hardened runtime)..."
+    # Sign Sparkle sub-executables first, then the main bundle
+    find "$APP_BUNDLE/Contents/Frameworks" -type f -perm +111 -exec codesign --force --options runtime --sign "$SIGNING_ID" {} \; 2>/dev/null || true
+    find "$APP_BUNDLE/Contents/Frameworks" -name "*.xpc" -exec codesign --force --deep --options runtime --sign "$SIGNING_ID" {} \; 2>/dev/null || true
+    find "$APP_BUNDLE/Contents/Frameworks" -name "*.app" -exec codesign --force --deep --options runtime --sign "$SIGNING_ID" {} \; 2>/dev/null || true
+    codesign --force --options runtime --sign "$SIGNING_ID" "$APP_BUNDLE/Contents/Frameworks/Sparkle.framework" 2>/dev/null || true
+    codesign --force --options runtime --sign "$SIGNING_ID" "$APP_BUNDLE"
+    echo "Signed with $SIGNING_ID + hardened runtime."
 else
     echo "Ad-hoc signing..."
     codesign --force --deep --sign "-" "$APP_BUNDLE"
