@@ -52,17 +52,10 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain
 
-      - name: Build release
-        run: ./Scripts/build.sh --release
-
-      - name: Sign app
+      - name: Build and sign release
         env:
           DEVELOPER_ID: ${{ secrets.DEVELOPER_ID_NAME }}
-        run: |
-          codesign --force --deep --options runtime \
-            --sign "$DEVELOPER_ID" \
-            --timestamp \
-            .build/SlapMyMac.app
+        run: ./Scripts/build.sh --release
 
       - name: Create DMG
         run: ./Scripts/create-dmg.sh
@@ -71,9 +64,7 @@ jobs:
         env:
           DEVELOPER_ID: ${{ secrets.DEVELOPER_ID_NAME }}
         run: |
-          codesign --force --sign "$DEVELOPER_ID" \
-            --timestamp \
-            .build/SlapMyMac.dmg
+          codesign --force --sign "$DEVELOPER_ID" --timestamp .build/SlapMyMac.dmg
 
       - name: Notarize DMG
         env:
@@ -86,38 +77,94 @@ jobs:
             --team-id "$TEAM_ID" \
             --password "$APP_PASSWORD" \
             --wait
-
           xcrun stapler staple .build/SlapMyMac.dmg
 
-      - name: Generate SHA256
-        id: sha
+      - name: Create Sparkle ZIP
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          SHA=$(shasum -a 256 .build/SlapMyMac.dmg | awk '{print $1}')
-          echo "sha256=$SHA" >> "$GITHUB_OUTPUT"
+          cd .build
+          ditto -c -k --sequesterRsrc --keepParent SlapMyMac.app "SlapMyMac-${VERSION}.zip"
+
+      - name: Generate checksums
+        id: sha
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          SHA_DMG=$(shasum -a 256 .build/SlapMyMac.dmg | awk '{print $1}')
+          SHA_ZIP=$(shasum -a 256 ".build/SlapMyMac-${VERSION}.zip" | awk '{print $1}')
+          ZIP_SIZE=$(stat -f%z ".build/SlapMyMac-${VERSION}.zip")
+          echo "sha256_dmg=$SHA_DMG" >> "$GITHUB_OUTPUT"
+          echo "sha256_zip=$SHA_ZIP" >> "$GITHUB_OUTPUT"
+          echo "zip_size=$ZIP_SIZE" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: .build/SlapMyMac.dmg
-          generate_release_notes: true
-          body: |
-            ## SlapMyMac ${{ steps.version.outputs.version }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SHA_DMG: ${{ steps.sha.outputs.sha256_dmg }}
+          SHA_ZIP: ${{ steps.sha.outputs.sha256_zip }}
+        run: |
+          gh release create "v${VERSION}" \
+            ".build/SlapMyMac.dmg" \
+            ".build/SlapMyMac-${VERSION}.zip" \
+            --title "v${VERSION}" \
+            --generate-notes \
+            --notes "$(cat <<EOF
+          ## SlapMyMac ${VERSION}
 
-            ### Installation
+          ### Installation
 
-            **Option 1 — DMG**
-            Download `SlapMyMac.dmg`, open it and drag the app to Applications.
+          **Option 1 — DMG (recommended)**
+          Download SlapMyMac.dmg, open it and drag the app to Applications.
+          Signed with Developer ID and notarized by Apple.
 
-            **Option 2 — Homebrew**
-            ```bash
-            brew install neopheus/slapmymac/slapmymac
-            ```
+          **Option 2 — Homebrew**
+          \`\`\`bash
+          brew install neopheus/slapmymac/slapmymac
+          \`\`\`
 
-            ### Verification
-            ```
-            SHA256: ${{ steps.sha.outputs.sha256 }}
-            ```
+          ### Verification
+          \`\`\`
+          DMG SHA256: ${SHA_DMG}
+          ZIP SHA256: ${SHA_ZIP}
+          \`\`\`
 
-            ### Requirements
-            - macOS 14+ (Sonoma)
-            - Apple Silicon (M1/M2/M3/M4)
+          ### Requirements
+          - macOS 14+ (Sonoma)
+          - Apple Silicon (M1/M2/M3/M4)
+          EOF
+          )"
+
+      - name: Update Sparkle appcast
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          ZIP_SIZE: ${{ steps.sha.outputs.zip_size }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PUBDATE=$(date -R)
+          cat > /tmp/appcast.xml << XMLEOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+              <channel>
+                  <title>SlapMyMac</title>
+                  <link>https://github.com/neopheus/slapmymac/releases</link>
+                  <item>
+                      <title>Version ${VERSION}</title>
+                      <sparkle:version>${BUILD_NUMBER}</sparkle:version>
+                      <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                      <sparkle:minimumSystemVersion>14.0</sparkle:minimumSystemVersion>
+                      <pubDate>${PUBDATE}</pubDate>
+                      <enclosure url="https://github.com/neopheus/slapmymac/releases/download/v${VERSION}/SlapMyMac-${VERSION}.zip"
+                                 sparkle:version="${BUILD_NUMBER}"
+                                 sparkle:shortVersionString="${VERSION}"
+                                 length="${ZIP_SIZE}"
+                                 type="application/octet-stream" />
+                  </item>
+              </channel>
+          </rss>
+          XMLEOF
+
+          gh release delete-asset appcast appcast.xml --yes 2>/dev/null || true
+          gh release upload appcast /tmp/appcast.xml 2>/dev/null || \
+            gh release create appcast /tmp/appcast.xml --title "Sparkle Appcast Feed" --notes "Auto-update feed for Sparkle."
