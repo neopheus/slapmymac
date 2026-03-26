@@ -25,6 +25,7 @@ final class AppState: ObservableObject {
     private var sensorTask: Task<Void, Never>?
     private var lidPollTimer: Timer?
     private var sampleCount: Int = 0
+    private var mcpRefreshCounter: Int = 0
 
     init() {
         loadSoundPack()
@@ -36,6 +37,7 @@ final class AppState: ObservableObject {
             startListening()
             lidAngle.start()
             startLidEventPolling()
+            updateMCPSnapshot()
             mcpServer.start()
         }
     }
@@ -88,7 +90,7 @@ final class AppState: ObservableObject {
 
         // Poll at 30Hz for smooth audio modulation
         lidPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated {
+            DispatchQueue.main.async {
                 self?.pollLid()
             }
         }
@@ -106,6 +108,12 @@ final class AppState: ObservableObject {
         // Detect discrete lid events (open/close/slam) for UI display
         if let event = lidEventDetector.process(angle: angle, velocity: velocity) {
             lastLidEvent = event
+        }
+
+        // Refresh MCP snapshot every ~10th poll (~3Hz) — thread-safe for server reads
+        mcpRefreshCounter += 1
+        if mcpRefreshCounter % 10 == 0 {
+            updateMCPSnapshot()
         }
     }
 
@@ -167,52 +175,64 @@ final class AppState: ObservableObject {
 
     // MARK: - MCP Server Setup
 
+    /// Thread-safe snapshot storage, accessible from any thread.
+    private static let mcpStore = MCPSnapshotStore()
+
+    /// Call periodically from main thread to refresh snapshot.
+    private func updateMCPSnapshot() {
+        let snapshot: [String: Any] = [
+            "listening": isListening,
+            "slapCount": slapCount,
+            "lifetimeSlaps": settings.lifetimeSlaps,
+            "soundMode": settings.soundMode.rawValue,
+            "sensitivity": settings.sensitivity,
+            "lidAngle": lidAngle.isAvailable ? lidAngle.angle : -1,
+            "lastImpact": lastImpact.map { [
+                "severity": $0.severity.rawValue,
+                "amplitude": $0.amplitude,
+                "detectorCount": $0.detectorCount
+            ] as [String: Any] } ?? [:] as [String: Any]
+        ]
+
+        let s = history.stats
+        let stats: [String: Any] = [
+            "totalSlaps": s.totalSlaps,
+            "sessionSlaps": s.sessionSlaps,
+            "avgAmplitude": s.avgAmplitude,
+            "maxAmplitude": s.maxAmplitude,
+            "majorCount": s.majorCount,
+            "mediumCount": s.mediumCount,
+            "slapsPerMinute": s.slapsPerMinute,
+            "sessionDurationSeconds": s.sessionDuration,
+            "favoriteMode": s.favoriteMode,
+        ]
+
+        let hist = history.recentRecords(50).map { record in
+            [
+                "id": record.id.uuidString,
+                "timestamp": ISO8601DateFormatter().string(from: record.timestamp),
+                "amplitude": record.amplitude,
+                "severity": record.severity,
+                "detectorCount": record.detectorCount,
+                "soundMode": record.soundMode,
+            ] as [String: Any]
+        }
+
+        Self.mcpStore.update(snapshot: snapshot, stats: stats, history: hist)
+    }
+
     private func setupMCPServer() {
-        mcpServer.getStatus = { [weak self] in
-            guard let self = self else { return [:] }
-            return [
-                "listening": self.isListening,
-                "slapCount": self.slapCount,
-                "lifetimeSlaps": self.settings.lifetimeSlaps,
-                "soundMode": self.settings.soundMode.rawValue,
-                "sensitivity": self.settings.sensitivity,
-                "lidAngle": self.lidAngle.isAvailable ? self.lidAngle.angle : -1,
-                "lastImpact": self.lastImpact.map { [
-                    "severity": $0.severity.rawValue,
-                    "amplitude": $0.amplitude,
-                    "detectorCount": $0.detectorCount
-                ] as [String: Any] } as Any
-            ]
+        let store = Self.mcpStore
+        mcpServer.getStatus = {
+            store.snapshot
         }
 
-        mcpServer.getStats = { [weak self] in
-            guard let self = self else { return [:] }
-            let s = self.history.stats
-            return [
-                "totalSlaps": s.totalSlaps,
-                "sessionSlaps": s.sessionSlaps,
-                "avgAmplitude": s.avgAmplitude,
-                "maxAmplitude": s.maxAmplitude,
-                "majorCount": s.majorCount,
-                "mediumCount": s.mediumCount,
-                "slapsPerMinute": s.slapsPerMinute,
-                "sessionDurationSeconds": s.sessionDuration,
-                "favoriteMode": s.favoriteMode,
-            ]
+        mcpServer.getStats = {
+            store.stats
         }
 
-        mcpServer.getHistory = { [weak self] in
-            guard let self = self else { return [] }
-            return self.history.recentRecords(50).map { record in
-                [
-                    "id": record.id.uuidString,
-                    "timestamp": ISO8601DateFormatter().string(from: record.timestamp),
-                    "amplitude": record.amplitude,
-                    "severity": record.severity,
-                    "detectorCount": record.detectorCount,
-                    "soundMode": record.soundMode,
-                ] as [String: Any]
-            }
+        mcpServer.getHistory = {
+            store.history
         }
 
         mcpServer.triggerSound = { [weak self] mode in

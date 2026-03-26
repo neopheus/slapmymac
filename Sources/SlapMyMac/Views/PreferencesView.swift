@@ -199,9 +199,9 @@ private struct SoundsTab: View {
             }
 
             Section("Voice Packs Included") {
-                VoicePackInfoRow(name: "Pain", clips: 10, description: "Ow! Ouch! Hey that hurts!")
-                VoicePackInfoRow(name: "Sexy", clips: 60, description: "60-level escalating intensity")
-                VoicePackInfoRow(name: "Halo", clips: 9, description: "Game death sounds")
+                ForEach(SoundMode.allCases.filter { $0 != .custom }) { mode in
+                    VoicePackInfoRow(mode: mode)
+                }
             }
         }
         .formStyle(.grouped)
@@ -230,21 +230,28 @@ private struct SoundsTab: View {
 }
 
 private struct VoicePackInfoRow: View {
-    let name: String
-    let clips: Int
-    let description: String
+    let mode: SoundMode
+
+    private var clipCount: Int {
+        SoundPack.bundled(mode).count
+    }
 
     var body: some View {
         HStack {
+            Image(systemName: mode.icon)
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 24)
+
             VStack(alignment: .leading, spacing: 2) {
-                Text(name)
+                Text(mode.displayName)
                     .font(.headline)
-                Text(description)
+                Text(mode.description)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            Text("\(clips) clips")
+            Text("\(clipCount) clips")
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }

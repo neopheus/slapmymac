@@ -86,7 +86,7 @@ final class LidAngleSensor: ObservableObject {
         }
 
         timer = .scheduledTimer(withTimeInterval: pollRate, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.poll() }
+            DispatchQueue.main.async { self?.poll() }
         }
         isRunning = true
         print("[LidAngle] Sensor started, polling at \(Int(1.0 / pollRate)) Hz")

@@ -53,7 +53,6 @@ final class SoundManager {
     private func createPlayer(for url: URL) -> AVAudioPlayer? {
         // Try to use a preloaded copy (create a new instance to allow overlapping)
         if preloadedPlayers[url] != nil {
-            // Create a fresh player from the same URL for concurrent playback
             if let player = try? AVAudioPlayer(contentsOf: url) {
                 player.prepareToPlay()
                 return player

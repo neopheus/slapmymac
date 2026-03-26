@@ -334,9 +334,10 @@ private struct VoicePackRow: View {
             }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                Image(systemName: isSelected ? "checkmark.circle.fill" : mode.icon)
                     .font(.system(size: 14))
                     .foregroundStyle(isSelected ? Theme.accent : Theme.textTertiary)
+                    .frame(width: 16)
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(mode.displayName)

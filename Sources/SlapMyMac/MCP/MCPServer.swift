@@ -14,9 +14,11 @@ import Foundation
 /// This enables the "MCP server integration" roadmap item:
 /// scripts and AI agents can make your Mac react to external events.
 final class MCPServer {
-    private var listener: Any?  // NWListener when Network framework is used
+    private var serverSocket: Int32 = -1
+    private var acceptSource: DispatchSourceRead?
     private let port: UInt16 = 7749
     private var isRunning = false
+    private let serverQueue = DispatchQueue(label: "SlapMyMac.MCPServer", attributes: .concurrent)
 
     // Callbacks to get/set app state
     var getStatus: (() -> [String: Any])?
@@ -28,101 +30,117 @@ final class MCPServer {
     func start() {
         guard !isRunning else { return }
 
-        // Use a simple socket-based HTTP server via GCD
-        let serverQueue = DispatchQueue(label: "SlapMyMac.MCPServer")
-
-        let socket = socket(AF_INET, SOCK_STREAM, 0)
-        guard socket >= 0 else {
+        let sock = socket(AF_INET, SOCK_STREAM, 0)
+        guard sock >= 0 else {
             print("[MCP] Failed to create socket")
             return
         }
 
         var yes: Int32 = 1
-        setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, &yes, socklen_t(MemoryLayout<Int32>.size))
 
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = port.bigEndian
-        addr.sin_addr.s_addr = INADDR_LOOPBACK.bigEndian  // localhost only
+        addr.sin_addr.s_addr = UInt32(INADDR_LOOPBACK).bigEndian
 
         let bindResult = withUnsafePointer(to: &addr) { ptr in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                bind(socket, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
+                bind(sock, sockPtr, socklen_t(MemoryLayout<sockaddr_in>.size))
             }
         }
 
         guard bindResult >= 0 else {
-            print("[MCP] Failed to bind to port \(port)")
-            close(socket)
+            print("[MCP] Failed to bind to port \(port): \(String(cString: strerror(errno)))")
+            close(sock)
             return
         }
 
-        listen(socket, 5)
+        listen(sock, 128)
+        self.serverSocket = sock
         isRunning = true
         print("[MCP] Server listening on http://localhost:\(port)")
 
-        serverQueue.async { [weak self] in
-            while self?.isRunning == true {
-                var clientAddr = sockaddr_in()
-                var clientLen = socklen_t(MemoryLayout<sockaddr_in>.size)
-                let clientSocket = withUnsafeMutablePointer(to: &clientAddr) { ptr in
-                    ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
-                        accept(socket, sockPtr, &clientLen)
-                    }
-                }
-                guard clientSocket >= 0 else { continue }
+        // Use GCD dispatch source for non-blocking accept
+        let source = DispatchSource.makeReadSource(fileDescriptor: sock, queue: serverQueue)
+        source.setEventHandler { [weak self] in
+            guard let self = self else { return }
 
-                serverQueue.async { [weak self] in
-                    self?.handleConnection(clientSocket)
+            var clientAddr = sockaddr_in()
+            var clientLen = socklen_t(MemoryLayout<sockaddr_in>.size)
+            let clientSock = withUnsafeMutablePointer(to: &clientAddr) { ptr in
+                ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
+                    accept(sock, sockPtr, &clientLen)
                 }
             }
-            close(socket)
+            guard clientSock >= 0 else { return }
+
+            self.serverQueue.async {
+                self.handleConnection(clientSock)
+            }
         }
+        source.setCancelHandler {
+            close(sock)
+        }
+        self.acceptSource = source
+        source.resume()
     }
 
     func stop() {
         isRunning = false
+        acceptSource?.cancel()
+        acceptSource = nil
+        serverSocket = -1
     }
 
     // MARK: - Request Handling
 
     private func handleConnection(_ sock: Int32) {
-        defer {
-            shutdown(sock, SHUT_RDWR)
-            close(sock)
-        }
-
-        // Set 1s read timeout so keep-alive connections don't block forever
-        var timeout = timeval(tv_sec: 1, tv_usec: 0)
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        // Set timeouts
+        var tv = timeval(tv_sec: 0, tv_usec: 500_000)
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(sock, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
 
         // Read request
         var buffer = [UInt8](repeating: 0, count: 4096)
-        let bytesRead = read(sock, &buffer, buffer.count)
-        guard bytesRead > 0 else { return }
+        let bytesRead = Darwin.read(sock, &buffer, buffer.count)
+
+        if bytesRead <= 0 {
+            Darwin.close(sock)
+            return
+        }
 
         let request = String(bytes: buffer.prefix(bytesRead), encoding: .utf8) ?? ""
-        let lines = request.split(separator: "\r\n")
-        guard let firstLine = lines.first else { return }
-        let parts = firstLine.split(separator: " ")
-        guard parts.count >= 2 else { return }
 
-        let method = String(parts[0])
-        let path = String(parts[1])
+        // Parse first line
+        let lines = request.components(separatedBy: "\r\n")
+        let parts = (lines.first ?? "").split(separator: " ")
+
+        let method = parts.count >= 1 ? String(parts[0]) : "GET"
+        let path = parts.count >= 2 ? String(parts[1]) : "/"
 
         // Extract body for POST
         var body = ""
-        if let bodyStart = request.range(of: "\r\n\r\n") {
-            body = String(request[bodyStart.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = request.range(of: "\r\n\r\n") {
+            body = String(request[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
         }
 
+        // Route and build response
         let (status, responseBody) = routeRequest(method: method, path: path, body: body)
-        let bodyData = responseBody.data(using: .utf8) ?? Data()
-        let response = "HTTP/1.1 \(status)\r\nContent-Type: application/json\r\nContent-Length: \(bodyData.count)\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n\(responseBody)"
 
-        response.withCString { ptr in
-            _ = write(sock, ptr, strlen(ptr))
+        // Write response as raw bytes
+        let httpResponse = "HTTP/1.1 \(status)\r\nContent-Type: application/json\r\nContent-Length: \(responseBody.utf8.count)\r\nConnection: close\r\nAccess-Control-Allow-Origin: *\r\n\r\n\(responseBody)"
+
+        let responseBytes = Array(httpResponse.utf8)
+        responseBytes.withUnsafeBufferPointer { ptr in
+            if let base = ptr.baseAddress {
+                _ = Darwin.write(sock, base, ptr.count)
+            }
         }
+
+        Darwin.shutdown(sock, SHUT_RDWR)
+        Darwin.close(sock)
     }
 
     private func routeRequest(method: String, path: String, body: String) -> (String, String) {

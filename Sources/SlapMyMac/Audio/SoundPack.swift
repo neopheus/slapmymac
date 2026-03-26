@@ -4,6 +4,16 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
     case pain
     case sexy
     case halo
+    case whip
+    case cartoon
+    case kungfu
+    case drum
+    case cat
+    case glass
+    case eightbit
+    case thunder
+    case wwe
+    case metal
     case custom
 
     var id: String { rawValue }
@@ -13,6 +23,16 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
         case .pain: return "Pain"
         case .sexy: return "Sexy"
         case .halo: return "Halo"
+        case .whip: return "Whip"
+        case .cartoon: return "Cartoon"
+        case .kungfu: return "Kung Fu"
+        case .drum: return "Drum"
+        case .cat: return "Cat"
+        case .glass: return "Glass"
+        case .eightbit: return "8-Bit"
+        case .thunder: return "Thunder"
+        case .wwe: return "WWE"
+        case .metal: return "Metal"
         case .custom: return "Custom"
         }
     }
@@ -22,13 +42,56 @@ enum SoundMode: String, CaseIterable, Identifiable, Codable {
         case .pain: return "10 protest/pain reactions"
         case .sexy: return "60-level escalating intensity"
         case .halo: return "Halo game death sounds"
+        case .whip: return "Whip cracks & lashes"
+        case .cartoon: return "Bonk, boing, splat, bell"
+        case .kungfu: return "Martial arts hits & kiai"
+        case .drum: return "Snare, kick, rimshot, crash"
+        case .cat: return "Surprised & angry meows"
+        case .glass: return "Cracks to full shatter"
+        case .eightbit: return "Retro game hit sounds"
+        case .thunder: return "Thunder cracks & rumbles"
+        case .wwe: return "Body slams & crowd oohs"
+        case .metal: return "Clang, gong, anvil strikes"
         case .custom: return "Your own MP3 files"
+        }
+    }
+
+    /// System icon name for the mode.
+    var icon: String {
+        switch self {
+        case .pain: return "face.dashed"
+        case .sexy: return "heart.fill"
+        case .halo: return "gamecontroller.fill"
+        case .whip: return "wind"
+        case .cartoon: return "sparkles"
+        case .kungfu: return "figure.martial.arts"
+        case .drum: return "drum.fill"
+        case .cat: return "cat.fill"
+        case .glass: return "light.cylindrical.ceiling"
+        case .eightbit: return "arcade.stick"
+        case .thunder: return "cloud.bolt.fill"
+        case .wwe: return "figure.wrestling"
+        case .metal: return "hammer.fill"
+        case .custom: return "folder.fill"
         }
     }
 
     /// Whether this mode uses escalation (score-based) rather than random selection.
     var isEscalating: Bool {
-        self == .sexy
+        switch self {
+        case .sexy, .cat, .glass: return true
+        default: return false
+        }
+    }
+
+    /// Folder name inside Resources/Sounds/
+    var folderName: String {
+        switch self {
+        case .kungfu: return "KungFu"
+        case .eightbit: return "8Bit"
+        case .wwe: return "WWE"
+        default: return displayName
+        }
     }
 }
 
@@ -45,7 +108,7 @@ struct SoundPack {
             return SoundPack(mode: .custom, urls: [])
         }
 
-        let folderName = mode.displayName
+        let folderName = mode.folderName
         guard let resourceURL = Bundle.main.url(forResource: "Sounds/\(folderName)", withExtension: nil) else {
             // Try alternate resource path for SPM bundle
             if let altURL = Bundle.main.resourceURL?.appendingPathComponent("Sounds/\(folderName)") {
