@@ -56,6 +56,11 @@ cp "$EXECUTABLE" "$APP_BUNDLE/Contents/MacOS/$APP_NAME"
 # Copy Info.plist
 cp "$PROJECT_DIR/Sources/SlapMyMac/Resources/Info.plist" "$APP_BUNDLE/Contents/"
 
+# Copy app icon
+if [[ -f "$PROJECT_DIR/Sources/SlapMyMac/Resources/AppIcon.icns" ]]; then
+    cp "$PROJECT_DIR/Sources/SlapMyMac/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/"
+fi
+
 # Copy sound resources from the SPM bundle
 RESOURCE_BUNDLE="$BUILD_DIR/$CONFIG/SlapMyMac_SlapMyMac.bundle"
 if [[ -d "$RESOURCE_BUNDLE" ]]; then

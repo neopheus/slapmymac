@@ -15,7 +15,8 @@ let package = Package(
             ],
             exclude: ["Resources/Info.plist", "Resources/SlapMyMac.entitlements"],
             resources: [
-                .copy("Resources/Sounds")
+                .copy("Resources/Sounds"),
+                .copy("Resources/AppIcon.icns")
             ],
             linkerSettings: [
                 .linkedFramework("IOKit"),

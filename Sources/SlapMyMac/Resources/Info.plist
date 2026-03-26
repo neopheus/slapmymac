@@ -26,5 +26,7 @@
     <string>https://github.com/neopheus/slapmymac/releases/download/appcast/appcast.xml</string>
     <key>SUPublicEDKey</key>
     <string></string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
 </dict>
 </plist>
