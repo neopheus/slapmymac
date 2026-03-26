@@ -68,6 +68,16 @@ if [[ -d "$SOUNDS_DIR" ]]; then
     cp -R "$SOUNDS_DIR" "$APP_BUNDLE/Contents/Resources/"
 fi
 
+# Copy Sparkle.framework into the app bundle (required for dynamic linking)
+mkdir -p "$APP_BUNDLE/Contents/Frameworks"
+SPARKLE_FW="$BUILD_DIR/artifacts/sparkle/Sparkle/Sparkle.xcframework/macos-arm64_x86_64/Sparkle.framework"
+if [[ -d "$SPARKLE_FW" ]]; then
+    cp -R "$SPARKLE_FW" "$APP_BUNDLE/Contents/Frameworks/"
+    # Fix rpath so the executable can find the framework
+    install_name_tool -add_rpath "@executable_path/../Frameworks" "$APP_BUNDLE/Contents/MacOS/$APP_NAME" 2>/dev/null || true
+    echo "Sparkle.framework bundled."
+fi
+
 # Sign with entitlements if --sandbox is set
 if [[ "$SANDBOX" == true ]]; then
     SIGNING_ID="${DEVELOPER_ID:--}"
