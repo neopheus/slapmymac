@@ -3,16 +3,28 @@ name: Update Homebrew Tap
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.6.1)'
+        required: true
 
 jobs:
   update-tap:
     runs-on: ubuntu-latest
+    # Skip appcast-only releases
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.release.tag_name != 'appcast'
     steps:
       - name: Get release info
         id: release
         env:
-          TAG_NAME: ${{ github.event.release.tag_name }}
-        run: echo "version=${TAG_NAME#v}" >> "$GITHUB_OUTPUT"
+          TAG_FROM_EVENT: ${{ github.event.release.tag_name }}
+          TAG_FROM_INPUT: ${{ github.event.inputs.tag }}
+        run: |
+          TAG="${TAG_FROM_EVENT:-$TAG_FROM_INPUT}"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: Download DMG and compute SHA256
         id: sha
@@ -34,6 +46,7 @@ jobs:
           VERSION: ${{ steps.release.outputs.version }}
           SHA256: ${{ steps.sha.outputs.sha256 }}
         run: |
+          mkdir -p tap/Casks
           cat > tap/Casks/slapmymac.rb << RUBY
           cask "slapmymac" do
             version "$VERSION"
