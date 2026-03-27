@@ -60,7 +60,7 @@ cask "slapmymac" do
   app "SlapMyMac.app"
 
   zap trash: [
-    "~/Library/Preferences/com.slapmymac.app.plist",
+    "~/Library/Preferences/fr.avdigital.slapmymac.plist",
   ]
 end
 EOF

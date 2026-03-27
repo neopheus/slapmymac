@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>SlapMyMac</string>
     <key>CFBundleIdentifier</key>
-    <string>com.slapmymac.app</string>
+    <string>fr.avdigital.slapmymac</string>
     <key>CFBundleVersion</key>
     <string>6</string>
     <key>CFBundleShortVersionString</key>

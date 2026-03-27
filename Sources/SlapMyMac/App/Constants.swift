@@ -53,5 +53,5 @@ enum Constants {
 
     /// App
     static let appName = "SlapMyMac"
-    static let bundleIdentifier = "com.slapmymac.app"
+    static let bundleIdentifier = "fr.avdigital.slapmymac"
 }
