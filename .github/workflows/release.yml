@@ -100,6 +100,7 @@ jobs:
 
       - name: Create GitHub Release
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.version.outputs.version }}
           SHA_DMG: ${{ steps.sha.outputs.sha256_dmg }}
           SHA_ZIP: ${{ steps.sha.outputs.sha256_zip }}
